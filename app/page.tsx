@@ -120,9 +120,9 @@ type IntrantAvailability = {
 
 function availabilityStatusLabel(status: AvailabilityStatus) {
   if (status === "ok") return "OK";
-  if (status === "missing") return "Manquant";
+  if (status === "missing") return "Stock insuffisant";
   if (status === "too_late") return "Arrive trop tard";
-  return "Non commandé";
+  return "À commander";
 }
 
 function todayISO() {
@@ -659,6 +659,81 @@ export default function Home() {
     setLoading(false);
   }
 
+  async function updateSupplierOrder(
+    orderId: string,
+    patch: {
+      supplier_id?: string | null;
+      order_number?: string | null;
+      expected_at?: string | null;
+      status?: SupplierOrderStatus;
+    },
+  ) {
+    if (!organization) return;
+
+    const { error } = await supabase
+      .from("supplier_orders")
+      .update(patch)
+      .eq("id", orderId);
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      await Promise.all([
+        loadSupplierData(organization.id),
+        loadStockData(organization.id),
+      ]);
+    }
+  }
+
+  async function updateSupplierOrderLineQuantity(
+    lineId: string,
+    quantityOrdered: number,
+    currentReceived: number,
+  ) {
+    if (!organization) return;
+
+    if (!quantityOrdered || quantityOrdered <= 0) {
+      setMessage("La quantité commandée doit être positive.");
+      return;
+    }
+
+    if (quantityOrdered < currentReceived) {
+      setMessage(
+        "La quantité commandée ne peut pas être inférieure à la quantité déjà reçue.",
+      );
+      return;
+    }
+
+    const { error } = await supabase
+      .from("supplier_order_lines")
+      .update({ quantity_ordered: quantityOrdered })
+      .eq("id", lineId);
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      await Promise.all([
+        loadSupplierData(organization.id),
+        loadStockData(organization.id),
+      ]);
+    }
+  }
+
+  async function deleteSupplierOrderLine(lineId: string) {
+    if (!organization) return;
+
+    const { error } = await supabase.from("supplier_order_lines").delete().eq("id", lineId);
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      await Promise.all([
+        loadSupplierData(organization.id),
+        loadStockData(organization.id),
+      ]);
+    }
+  }
+
   async function addBomLine(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -684,6 +759,38 @@ export default function Home() {
     }
 
     setLoading(false);
+  }
+
+  async function updateBomLineQuantity(lineId: string, quantityPer: number) {
+    if (!organization) return;
+
+    if (!quantityPer || quantityPer <= 0) {
+      setMessage("La quantité par référence produite doit être positive.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("bom_lines")
+      .update({ quantity_per: quantityPer })
+      .eq("id", lineId);
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      await loadCustomerData(organization.id);
+    }
+  }
+
+  async function deleteBomLine(lineId: string) {
+    if (!organization) return;
+
+    const { error } = await supabase.from("bom_lines").delete().eq("id", lineId);
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      await loadCustomerData(organization.id);
+    }
   }
 
   function updateCustomerOrderLine(index: number, patch: Partial<DraftCustomerOrderLine>) {
@@ -766,9 +873,13 @@ export default function Home() {
     setLoading(false);
   }
 
-  async function updateCustomerOrderStatus(
+  async function updateCustomerOrder(
     orderId: string,
-    status: "fulfilled" | "cancelled",
+    patch: {
+      customer_name?: string;
+      order_number?: string | null;
+      status?: CustomerOrderStatus;
+    },
   ) {
     if (!organization) return;
 
@@ -777,7 +888,7 @@ export default function Home() {
 
     const { error } = await supabase
       .from("customer_orders")
-      .update({ status })
+      .update(patch)
       .eq("id", orderId);
 
     if (error) {
@@ -790,6 +901,44 @@ export default function Home() {
     }
 
     setLoading(false);
+  }
+
+  async function updateCustomerOrderLineQuantity(lineId: string, quantityValue: number) {
+    if (!organization) return;
+
+    if (!quantityValue || quantityValue <= 0) {
+      setMessage("La quantité doit être positive.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("customer_order_lines")
+      .update({ quantity: quantityValue })
+      .eq("id", lineId);
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      await Promise.all([
+        loadCustomerData(organization.id),
+        loadStockData(organization.id),
+      ]);
+    }
+  }
+
+  async function deleteCustomerOrderLine(lineId: string) {
+    if (!organization) return;
+
+    const { error } = await supabase.from("customer_order_lines").delete().eq("id", lineId);
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      await Promise.all([
+        loadCustomerData(organization.id),
+        loadStockData(organization.id),
+      ]);
+    }
   }
 
   async function addProductionOrder(event: FormEvent<HTMLFormElement>) {
@@ -827,12 +976,21 @@ export default function Home() {
     setLoading(false);
   }
 
-  async function updateProductionOrderPlannedAt(orderId: string, plannedAt: string) {
+  async function updateProductionOrder(
+    orderId: string,
+    patch: {
+      produced_item_id?: string;
+      quantity_planned?: number;
+      planned_at?: string | null;
+      note?: string | null;
+      status?: ProductionOrderStatus;
+    },
+  ) {
     if (!organization) return;
 
     const { error } = await supabase
       .from("production_orders")
-      .update({ planned_at: plannedAt || null })
+      .update(patch)
       .eq("id", orderId);
 
     if (error) {
@@ -1439,91 +1597,164 @@ export default function Home() {
 
           {supplierOrders.map((order) => (
             <div key={order.id} className="border border-border rounded-lg p-4 flex flex-col gap-3 bg-background">
-              <div className="flex items-center justify-between text-sm">
-                <div>
-                  <span className="font-medium">
-                    {order.order_number || "Sans numéro"}
-                  </span>
-                  {" — "}
-                  {suppliers.find((supplier) => supplier.id === order.supplier_id)
-                    ?.name ?? "Fournisseur non renseigné"}
-                  {order.expected_at && ` — attendu le ${order.expected_at}`}
+              <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="text"
+                    defaultValue={order.order_number ?? ""}
+                    placeholder="Numéro"
+                    onBlur={(event) =>
+                      void updateSupplierOrder(order.id, {
+                        order_number: event.target.value.trim() || null,
+                      })
+                    }
+                    className="border border-border rounded-md px-2 py-1 text-xs w-28 bg-background text-foreground focus:outline-none focus:border-accent"
+                  />
+                  <select
+                    value={order.supplier_id ?? ""}
+                    onChange={(event) =>
+                      void updateSupplierOrder(order.id, {
+                        supplier_id: event.target.value || null,
+                      })
+                    }
+                    className="border border-border rounded-md px-2 py-1 text-xs bg-background text-foreground focus:outline-none focus:border-accent"
+                  >
+                    <option value="">Aucun fournisseur</option>
+                    {suppliers.map((supplier) => (
+                      <option key={supplier.id} value={supplier.id}>
+                        {supplier.name}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="date"
+                    value={order.expected_at ?? ""}
+                    onChange={(event) =>
+                      void updateSupplierOrder(order.id, {
+                        expected_at: event.target.value || null,
+                      })
+                    }
+                    className="border border-border rounded-md px-2 py-1 text-xs bg-background text-foreground focus:outline-none focus:border-accent"
+                  />
                 </div>
-                <span
-                  className={
-                    order.status === "partially_received" ? "text-orange-600" : ""
-                  }
-                >
-                  {supplierOrderStatusLabel(order.status)}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={
+                      order.status === "partially_received" ? "text-orange-600" : ""
+                    }
+                  >
+                    {supplierOrderStatusLabel(order.status)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void updateSupplierOrder(order.id, { status: "cancelled" })}
+                    disabled={loading}
+                    className="rounded-md border border-red-300 px-2 py-1 text-xs text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50"
+                  >
+                    Annuler
+                  </button>
+                </div>
               </div>
 
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-muted">
-                    <th className="py-1">Article</th>
-                    <th className="py-1 text-right">Commandé</th>
-                    <th className="py-1 text-right">Reçu</th>
-                    <th className="py-1 text-right">Restant</th>
-                    <th className="py-1">Réception</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {order.supplier_order_lines.map((line) => {
-                    const remaining = line.quantity_ordered - line.quantity_received;
-                    const draft = receiptDrafts[line.id];
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-muted">
+                      <th className="px-2 py-1">Article</th>
+                      <th className="px-2 py-1 text-right">Commandé</th>
+                      <th className="px-2 py-1 text-right">Reçu</th>
+                      <th className="px-2 py-1 text-right">Restant</th>
+                      <th className="px-2 py-1">Réception</th>
+                      <th className="px-2 py-1"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {order.supplier_order_lines.map((line) => {
+                      const remaining = line.quantity_ordered - line.quantity_received;
+                      const draft = receiptDrafts[line.id];
+                      const isUntouched = line.quantity_received === 0;
 
-                    return (
-                      <tr key={line.id} className="border-t border-border">
-                        <td className="py-1">
-                          {line.items.sku} — {line.items.name}
-                        </td>
-                        <td className="py-1 text-right">
-                          {quantity(line.quantity_ordered)}
-                        </td>
-                        <td className="py-1 text-right">
-                          {quantity(line.quantity_received)}
-                        </td>
-                        <td className="py-1 text-right">{quantity(remaining)}</td>
-                        <td className="py-1">
-                          {remaining > 0 ? (
-                            <div className="flex gap-2 items-center">
+                      return (
+                        <tr key={line.id} className="border-t border-border">
+                          <td className="px-2 py-1">
+                            {line.items.sku} — {line.items.name}
+                          </td>
+                          <td className="px-2 py-1 text-right">
+                            {isUntouched ? (
                               <input
                                 type="number"
-                                min="0"
-                                max={remaining}
+                                min="0.01"
                                 step="0.01"
-                                placeholder="Qté reçue"
-                                value={draft?.quantity ?? ""}
-                                onChange={(event) =>
-                                  setReceiptDrafts((current) => ({
-                                    ...current,
-                                    [line.id]: {
-                                      quantity: event.target.value,
-                                      note: current[line.id]?.note ?? "",
-                                    },
-                                  }))
+                                defaultValue={line.quantity_ordered}
+                                onBlur={(event) =>
+                                  void updateSupplierOrderLineQuantity(
+                                    line.id,
+                                    Number(event.target.value),
+                                    line.quantity_received,
+                                  )
                                 }
-                                className="border border-border rounded-md px-2 py-1 w-20 bg-background text-foreground focus:outline-none focus:border-accent"
+                                className="border border-border rounded-md px-2 py-1 w-20 text-right bg-background text-foreground focus:outline-none focus:border-accent"
                               />
+                            ) : (
+                              quantity(line.quantity_ordered)
+                            )}
+                          </td>
+                          <td className="px-2 py-1 text-right">
+                            {quantity(line.quantity_received)}
+                          </td>
+                          <td className="px-2 py-1 text-right">{quantity(remaining)}</td>
+                          <td className="px-2 py-1">
+                            {remaining > 0 ? (
+                              <div className="flex gap-2 items-center">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max={remaining}
+                                  step="0.01"
+                                  placeholder="Qté reçue"
+                                  value={draft?.quantity ?? ""}
+                                  onChange={(event) =>
+                                    setReceiptDrafts((current) => ({
+                                      ...current,
+                                      [line.id]: {
+                                        quantity: event.target.value,
+                                        note: current[line.id]?.note ?? "",
+                                      },
+                                    }))
+                                  }
+                                  className="border border-border rounded-md px-2 py-1 w-20 bg-background text-foreground focus:outline-none focus:border-accent"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => void receiveLine(line.id)}
+                                  disabled={loading}
+                                  className="rounded-md border border-border px-2 py-1 transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
+                                >
+                                  Réceptionner
+                                </button>
+                              </div>
+                            ) : (
+                              "Complet"
+                            )}
+                          </td>
+                          <td className="px-2 py-1">
+                            {isUntouched && (
                               <button
                                 type="button"
-                                onClick={() => void receiveLine(line.id)}
+                                onClick={() => void deleteSupplierOrderLine(line.id)}
                                 disabled={loading}
-                                className="rounded-md border border-border px-2 py-1 transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
+                                className="text-xs text-red-600 hover:text-red-700 disabled:opacity-50"
                               >
-                                Réceptionner
+                                Supprimer
                               </button>
-                            </div>
-                          ) : (
-                            "Complet"
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           ))}
         </div>
@@ -1603,6 +1834,7 @@ export default function Home() {
                 <th className="px-3 py-2">Référence produite</th>
                 <th className="px-3 py-2">Intrant</th>
                 <th className="px-3 py-2 text-right">Quantité par référence produite</th>
+                <th className="px-3 py-2"></th>
               </tr>
             </thead>
             <tbody>
@@ -1623,14 +1855,33 @@ export default function Home() {
                         : line.component_item_id}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      {quantity(line.quantity_per)}
+                      <input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        defaultValue={line.quantity_per}
+                        onBlur={(event) =>
+                          void updateBomLineQuantity(line.id, Number(event.target.value))
+                        }
+                        className="border border-border rounded-md px-2 py-1 w-20 text-right bg-background text-foreground focus:outline-none focus:border-accent"
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <button
+                        type="button"
+                        onClick={() => void deleteBomLine(line.id)}
+                        disabled={loading}
+                        className="text-xs text-red-600 hover:text-red-700 disabled:opacity-50"
+                      >
+                        Supprimer
+                      </button>
                     </td>
                   </tr>
                 );
               })}
               {bomLines.length === 0 && (
                 <tr>
-                  <td className="px-3 py-4 text-center text-muted" colSpan={3}>
+                  <td className="px-3 py-4 text-center text-muted" colSpan={4}>
                     Aucune nomenclature pour le moment.
                   </td>
                 </tr>
@@ -1741,15 +1992,33 @@ export default function Home() {
 
           {customerOrders.map((order) => (
             <div key={order.id} className="border border-border rounded-lg p-4 flex flex-col gap-3 bg-background">
-              <div className="flex items-center justify-between text-sm">
-                <div>
-                  <span className="font-medium">{order.customer_name}</span>
-                  {order.order_number && ` — ${order.order_number}`}
+              <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="text"
+                    defaultValue={order.customer_name}
+                    onBlur={(event) => {
+                      const value = event.target.value.trim();
+                      if (value) void updateCustomerOrder(order.id, { customer_name: value });
+                    }}
+                    className="border border-border rounded-md px-2 py-1 text-xs font-medium bg-background text-foreground focus:outline-none focus:border-accent"
+                  />
+                  <input
+                    type="text"
+                    defaultValue={order.order_number ?? ""}
+                    placeholder="Numéro"
+                    onBlur={(event) =>
+                      void updateCustomerOrder(order.id, {
+                        order_number: event.target.value.trim() || null,
+                      })
+                    }
+                    className="border border-border rounded-md px-2 py-1 text-xs w-28 bg-background text-foreground focus:outline-none focus:border-accent"
+                  />
                 </div>
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => void updateCustomerOrderStatus(order.id, "fulfilled")}
+                    onClick={() => void updateCustomerOrder(order.id, { status: "fulfilled" })}
                     disabled={loading}
                     className="rounded-md border border-border px-2 py-1 text-xs transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
                   >
@@ -1757,7 +2026,7 @@ export default function Home() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => void updateCustomerOrderStatus(order.id, "cancelled")}
+                    onClick={() => void updateCustomerOrder(order.id, { status: "cancelled" })}
                     disabled={loading}
                     className="rounded-md border border-red-300 px-2 py-1 text-xs text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50"
                   >
@@ -1766,24 +2035,51 @@ export default function Home() {
                 </div>
               </div>
 
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-muted">
-                    <th className="py-1">Produit fini</th>
-                    <th className="py-1 text-right">Quantité</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {order.customer_order_lines.map((line) => (
-                    <tr key={line.id} className="border-t border-border">
-                      <td className="py-1">
-                        {line.items.sku} — {line.items.name}
-                      </td>
-                      <td className="py-1 text-right">{quantity(line.quantity)}</td>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-muted">
+                      <th className="px-2 py-1">Produit fini</th>
+                      <th className="px-2 py-1 text-right">Quantité</th>
+                      <th className="px-2 py-1"></th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {order.customer_order_lines.map((line) => (
+                      <tr key={line.id} className="border-t border-border">
+                        <td className="px-2 py-1">
+                          {line.items.sku} — {line.items.name}
+                        </td>
+                        <td className="px-2 py-1 text-right">
+                          <input
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            defaultValue={line.quantity}
+                            onBlur={(event) =>
+                              void updateCustomerOrderLineQuantity(
+                                line.id,
+                                Number(event.target.value),
+                              )
+                            }
+                            className="border border-border rounded-md px-2 py-1 w-20 text-right bg-background text-foreground focus:outline-none focus:border-accent"
+                          />
+                        </td>
+                        <td className="px-2 py-1">
+                          <button
+                            type="button"
+                            onClick={() => void deleteCustomerOrderLine(line.id)}
+                            disabled={loading}
+                            className="text-xs text-red-600 hover:text-red-700 disabled:opacity-50"
+                          >
+                            Supprimer
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           ))}
         </div>
@@ -1867,23 +2163,54 @@ export default function Home() {
           )}
 
           {productionOrders.map((order) => {
-            const producedItem = items.find(
-              (item) => item.id === order.produced_item_id,
-            );
             const availability = computeAvailabilityAtDate(order);
 
             return (
               <div key={order.id} className="border border-border rounded-lg p-4 flex flex-col gap-3 bg-background">
-                <div className="flex items-center justify-between text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                   <div className="flex flex-col gap-1">
-                    <div>
-                      <span className="font-medium">
-                        {producedItem
-                          ? `${producedItem.sku} — ${producedItem.name}`
-                          : order.produced_item_id}
-                      </span>
-                      {` — quantité ${quantity(order.quantity_planned)}`}
-                      {order.note && ` — ${order.note}`}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        value={order.produced_item_id}
+                        onChange={(event) =>
+                          void updateProductionOrder(order.id, {
+                            produced_item_id: event.target.value,
+                          })
+                        }
+                        className="border border-border rounded-md px-2 py-1 text-xs font-medium bg-background text-foreground focus:outline-none focus:border-accent"
+                      >
+                        {items.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.sku} — {item.name}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        defaultValue={order.quantity_planned}
+                        onBlur={(event) => {
+                          const value = Number(event.target.value);
+                          if (!value || value <= 0) {
+                            setMessage("La quantité planifiée doit être positive.");
+                            return;
+                          }
+                          void updateProductionOrder(order.id, { quantity_planned: value });
+                        }}
+                        className="border border-border rounded-md px-2 py-1 text-xs w-20 bg-background text-foreground focus:outline-none focus:border-accent"
+                      />
+                      <input
+                        type="text"
+                        defaultValue={order.note ?? ""}
+                        placeholder="Note"
+                        onBlur={(event) =>
+                          void updateProductionOrder(order.id, {
+                            note: event.target.value.trim() || null,
+                          })
+                        }
+                        className="border border-border rounded-md px-2 py-1 text-xs bg-background text-foreground focus:outline-none focus:border-accent"
+                      />
                     </div>
                     <label className="flex items-center gap-2 text-xs text-muted">
                       Date prévue
@@ -1891,20 +2218,34 @@ export default function Home() {
                         type="date"
                         value={order.planned_at ?? ""}
                         onChange={(event) =>
-                          void updateProductionOrderPlannedAt(order.id, event.target.value)
+                          void updateProductionOrder(order.id, {
+                            planned_at: event.target.value || null,
+                          })
                         }
                         className="border border-border rounded-md px-2 py-1 text-xs bg-background text-foreground focus:outline-none focus:border-accent"
                       />
                     </label>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleCompleteClick(order)}
-                    disabled={loading}
-                    className="rounded-md border border-border px-2 py-1 text-xs transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
-                  >
-                    Terminer la production
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleCompleteClick(order)}
+                      disabled={loading}
+                      className="rounded-md border border-border px-2 py-1 text-xs transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
+                    >
+                      Terminer la production
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void updateProductionOrder(order.id, { status: "cancelled" })
+                      }
+                      disabled={loading}
+                      className="rounded-md border border-red-300 px-2 py-1 text-xs text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50"
+                    >
+                      Annuler
+                    </button>
+                  </div>
                 </div>
 
                 {availability.length > 0 ? (
@@ -1913,44 +2254,54 @@ export default function Home() {
                       Disponibilité des intrants à la date prévue
                       {!order.planned_at && " (aucune date définie — calcul à partir d'aujourd'hui)"}
                     </p>
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-left text-muted">
-                          <th className="py-1">Intrant</th>
-                          <th className="py-1 text-right">Besoin</th>
-                          <th className="py-1 text-right">Disponible à date</th>
-                          <th className="py-1 text-right">Manquant</th>
-                          <th className="py-1">Prochaine arrivée</th>
-                          <th className="py-1">Statut</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {availability.map((line) => (
-                          <tr key={line.itemId} className="border-t border-border">
-                            <td className="py-1">{line.label}</td>
-                            <td className="py-1 text-right">{quantity(line.required)}</td>
-                            <td className="py-1 text-right">
-                              {quantity(line.availableAtDate)}
-                            </td>
-                            <td className="py-1 text-right">
-                              {line.missing > 0 ? quantity(line.missing) : "—"}
-                            </td>
-                            <td className="py-1">{line.nextArrival ?? "Aucune"}</td>
-                            <td
-                              className={
-                                line.status === "ok"
-                                  ? "py-1"
-                                  : line.status === "too_late"
-                                    ? "py-1 text-orange-600"
-                                    : "py-1 text-red-600"
-                              }
-                            >
-                              {availabilityStatusLabel(line.status)}
-                            </td>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm border-collapse">
+                        <thead>
+                          <tr className="text-left text-muted">
+                            <th className="px-2 py-1 min-w-[140px]">Intrant</th>
+                            <th className="px-2 py-1 text-right min-w-[72px]">Besoin</th>
+                            <th className="px-2 py-1 text-right min-w-[96px] whitespace-nowrap">
+                              Disponible à date
+                            </th>
+                            <th className="px-2 py-1 text-right min-w-[80px]">Manquant</th>
+                            <th className="px-2 py-1 min-w-[110px] whitespace-nowrap">
+                              Prochaine arrivée
+                            </th>
+                            <th className="px-2 py-1 min-w-[130px] whitespace-nowrap">Statut</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {availability.map((line) => (
+                            <tr key={line.itemId} className="border-t border-border">
+                              <td className="px-2 py-1">{line.label}</td>
+                              <td className="px-2 py-1 text-right whitespace-nowrap">
+                                {quantity(line.required)}
+                              </td>
+                              <td className="px-2 py-1 text-right whitespace-nowrap">
+                                {quantity(line.availableAtDate)}
+                              </td>
+                              <td className="px-2 py-1 text-right whitespace-nowrap">
+                                {line.missing > 0 ? quantity(line.missing) : "—"}
+                              </td>
+                              <td className="px-2 py-1 whitespace-nowrap">
+                                {line.nextArrival ?? "Aucune"}
+                              </td>
+                              <td
+                                className={
+                                  line.status === "ok"
+                                    ? "px-2 py-1 whitespace-nowrap"
+                                    : line.status === "too_late"
+                                      ? "px-2 py-1 whitespace-nowrap text-orange-600"
+                                      : "px-2 py-1 whitespace-nowrap text-red-600"
+                                }
+                              >
+                                {availabilityStatusLabel(line.status)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 ) : (
                   <p className="text-xs text-muted">
@@ -1967,19 +2318,19 @@ export default function Home() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="text-left text-muted">
-                          <th className="py-1">Intrant</th>
-                          <th className="py-1 text-right">Besoin</th>
-                          <th className="py-1 text-right">Disponible</th>
-                          <th className="py-1 text-right">Manquant</th>
+                          <th className="px-2 py-1">Intrant</th>
+                          <th className="px-2 py-1 text-right">Besoin</th>
+                          <th className="px-2 py-1 text-right">Disponible</th>
+                          <th className="px-2 py-1 text-right">Manquant</th>
                         </tr>
                       </thead>
                       <tbody>
                         {shortageByOrder[order.id].map((line) => (
                           <tr key={line.itemId} className="border-t border-border">
-                            <td className="py-1">{line.label}</td>
-                            <td className="py-1 text-right">{quantity(line.required)}</td>
-                            <td className="py-1 text-right">{quantity(line.available)}</td>
-                            <td className="py-1 text-right text-red-600">
+                            <td className="px-2 py-1">{line.label}</td>
+                            <td className="px-2 py-1 text-right">{quantity(line.required)}</td>
+                            <td className="px-2 py-1 text-right">{quantity(line.available)}</td>
+                            <td className="px-2 py-1 text-right text-red-600">
                               {quantity(line.missing)}
                             </td>
                           </tr>
