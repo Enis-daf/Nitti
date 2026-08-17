@@ -28,3 +28,12 @@ body {
   color: var(--foreground);
   font-family: var(--font-lexend), sans-serif;
 }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}

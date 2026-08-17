@@ -168,6 +168,23 @@ function alertLabel(status: DashboardRow["alert_status"]) {
   return "OK";
 }
 
+function AlertBadge({ status }: { status: DashboardRow["alert_status"] }) {
+  const classes =
+    status === "ok"
+      ? "bg-surface-mint text-foreground"
+      : status === "low_physical_stock"
+        ? "bg-surface-pink text-foreground"
+        : "bg-accent text-white";
+
+  return (
+    <span
+      className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${classes}`}
+    >
+      {alertLabel(status)}
+    </span>
+  );
+}
+
 function CollapsibleSection({
   id,
   title,
@@ -195,11 +212,11 @@ function CollapsibleSection({
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className="w-full flex items-center justify-between px-4 py-3 text-left"
+        className="w-full flex items-center justify-between px-4 py-3 text-left rounded-lg transition-colors hover:bg-black/[0.02]"
       >
         <h2 className="font-medium">{title}</h2>
         <span
-          className={`text-muted transition-transform ${open ? "rotate-180" : ""}`}
+          className={`text-muted text-sm transition-transform ${open ? "rotate-180" : ""}`}
           aria-hidden="true"
         >
           ▾
@@ -1346,7 +1363,7 @@ export default function Home() {
   }
 
   return (
-    <main className="flex-1 flex flex-col gap-8 p-8 max-w-5xl mx-auto w-full">
+    <main className="flex-1 flex flex-col gap-8 px-6 py-8 md:px-10 max-w-[1800px] mx-auto w-full">
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">{organization?.name}</h1>
@@ -1364,77 +1381,95 @@ export default function Home() {
       {message && <p className="text-sm text-red-600">{message}</p>}
 
       <div className="flex flex-col lg:flex-row gap-6 items-start">
-        <aside className="w-full lg:w-96 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto flex flex-col gap-4 border border-border rounded-lg p-4 bg-background">
+        <aside className="w-full lg:w-[43%] lg:shrink-0 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto flex flex-col gap-5 border border-border rounded-lg p-5 bg-background">
           <div>
             <h2 className="font-medium">Dashboard & alertes</h2>
-            <div className="flex gap-6 mt-2 text-sm">
+            <div className="flex gap-8 mt-3 text-sm">
               <div>
                 <p className="text-muted text-xs">Références</p>
-                <p className="text-xl font-semibold">{dashboard.length}</p>
+                <p className="text-2xl font-semibold">{dashboard.length}</p>
               </div>
               <div>
                 <p className="text-muted text-xs">Alertes</p>
-                <p className={`text-xl font-semibold ${alertCount > 0 ? "text-red-600" : ""}`}>
+                <p className={`text-2xl font-semibold ${alertCount > 0 ? "text-accent" : ""}`}>
                   {alertCount}
                 </p>
               </div>
             </div>
           </div>
 
-        <div className="overflow-x-auto border border-border rounded-lg">
-          <table className="w-full text-sm">
-            <thead className="bg-surface-mint">
-              <tr className="text-left">
-                <th className="px-3 py-2">SKU</th>
-                <th className="px-3 py-2">Nom</th>
-                <th className="px-3 py-2">Type</th>
-                <th className="px-3 py-2 text-right">Stock physique</th>
-                <th className="px-3 py-2 text-right">Commandé</th>
-                <th className="px-3 py-2 text-right">Réservé</th>
-                <th className="px-3 py-2 text-right">Disponible</th>
-                <th className="px-3 py-2">Alerte</th>
-              </tr>
-            </thead>
-            <tbody>
-              {dashboard.map((row) => (
-                <tr key={row.item_id} className="border-t border-border">
-                  <td className="px-3 py-2">{row.sku}</td>
-                  <td className="px-3 py-2">{row.name}</td>
-                  <td className="px-3 py-2">
-                    {row.item_type === "component" ? "Intrant" : "Produit fini"}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    {quantity(row.quantity_physical)}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    {quantity(row.quantity_ordered)}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    {quantity(row.quantity_reserved)}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    {quantity(row.quantity_available)}
-                  </td>
-                  <td className="px-3 py-2">
-                    {row.alert_status === "ok" ? (
-                      "OK"
-                    ) : (
-                      <span className="text-red-600">
-                        {alertLabel(row.alert_status)}
+          {alertCount > 0 && (
+            <div className="flex flex-col gap-2">
+              <p className="text-sm font-medium text-foreground">Alertes importantes</p>
+              <div className="flex flex-col gap-1.5">
+                {dashboard
+                  .filter((row) => row.alert_status !== "ok")
+                  .map((row) => (
+                    <div
+                      key={row.item_id}
+                      className="flex items-center justify-between gap-3 rounded-md bg-surface-pink px-3 py-2 text-sm"
+                    >
+                      <span className="truncate">
+                        {row.sku} — {row.name}
                       </span>
-                    )}
-                  </td>
+                      <AlertBadge status={row.alert_status} />
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
+        <div>
+          <p className="text-sm font-medium text-foreground mb-2">Stock</p>
+          <div className="border border-border rounded-lg overflow-hidden">
+            <table className="w-full text-sm table-fixed">
+              <thead className="bg-background border-b-2 border-border">
+                <tr className="text-left">
+                  <th className="px-2 py-2 font-semibold w-[14%]">SKU</th>
+                  <th className="px-2 py-2 font-semibold w-[21%]">Nom</th>
+                  <th className="px-2 py-2 font-semibold w-[11%]">Type</th>
+                  <th className="px-2 py-2 font-semibold text-right w-[10%]">Physique</th>
+                  <th className="px-2 py-2 font-semibold text-right w-[10%]">Commandé</th>
+                  <th className="px-2 py-2 font-semibold text-right w-[9%]">Réservé</th>
+                  <th className="px-2 py-2 font-semibold text-right w-[10%]">Disponible</th>
+                  <th className="px-2 py-2 font-semibold w-[15%]">Alerte</th>
                 </tr>
-              ))}
-              {dashboard.length === 0 && (
-                <tr>
-                  <td className="px-3 py-4 text-center text-muted" colSpan={8}>
-                    Aucune référence pour le moment.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {dashboard.map((row) => (
+                  <tr key={row.item_id} className="border-t border-border">
+                    <td className="px-2 py-2 truncate">{row.sku}</td>
+                    <td className="px-2 py-2 truncate">{row.name}</td>
+                    <td className="px-2 py-2 truncate">
+                      {row.item_type === "component" ? "Intrant" : "Produit fini"}
+                    </td>
+                    <td className="px-2 py-2 text-right">
+                      {quantity(row.quantity_physical)}
+                    </td>
+                    <td className="px-2 py-2 text-right">
+                      {quantity(row.quantity_ordered)}
+                    </td>
+                    <td className="px-2 py-2 text-right">
+                      {quantity(row.quantity_reserved)}
+                    </td>
+                    <td className="px-2 py-2 text-right">
+                      {quantity(row.quantity_available)}
+                    </td>
+                    <td className="px-2 py-2">
+                      <AlertBadge status={row.alert_status} />
+                    </td>
+                  </tr>
+                ))}
+                {dashboard.length === 0 && (
+                  <tr>
+                    <td className="px-2 py-4 text-center text-muted" colSpan={8}>
+                      Aucune référence pour le moment.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
         </aside>
 
@@ -1640,11 +1675,13 @@ export default function Home() {
 
         <div className="overflow-x-auto border border-border rounded-lg">
           <table className="w-full text-sm">
-            <thead className="bg-surface-mint">
+            <thead className="bg-background border-b-2 border-border">
               <tr className="text-left">
-                <th className="px-3 py-2">Référence produite</th>
-                <th className="px-3 py-2">Intrant</th>
-                <th className="px-3 py-2 text-right">Quantité par référence produite</th>
+                <th className="px-3 py-2 font-semibold">Référence produite</th>
+                <th className="px-3 py-2 font-semibold">Intrant</th>
+                <th className="px-3 py-2 font-semibold text-right">
+                  Quantité par référence produite
+                </th>
                 <th className="px-3 py-2"></th>
               </tr>
             </thead>
