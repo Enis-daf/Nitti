@@ -57,6 +57,35 @@ type DraftOrderLine = {
   quantity: string;
 };
 
+type BomLine = {
+  id: string;
+  product_item_id: string;
+  component_item_id: string;
+  quantity_per: number;
+};
+
+type CustomerOrderStatus = "draft" | "confirmed" | "fulfilled" | "cancelled";
+
+type CustomerOrderLine = {
+  id: string;
+  product_item_id: string;
+  quantity: number;
+  items: { sku: string; name: string };
+};
+
+type CustomerOrder = {
+  id: string;
+  order_number: string | null;
+  customer_name: string;
+  status: CustomerOrderStatus;
+  customer_order_lines: CustomerOrderLine[];
+};
+
+type DraftCustomerOrderLine = {
+  itemId: string;
+  quantity: string;
+};
+
 type DashboardRow = {
   item_id: string;
   sku: string;
@@ -131,6 +160,18 @@ export default function Home() {
     Record<string, { quantity: string; note: string }>
   >({});
 
+  const [bomLines, setBomLines] = useState<BomLine[]>([]);
+  const [bomProductId, setBomProductId] = useState("");
+  const [bomComponentId, setBomComponentId] = useState("");
+  const [bomQuantityPer, setBomQuantityPer] = useState("");
+
+  const [customerOrders, setCustomerOrders] = useState<CustomerOrder[]>([]);
+  const [customerName, setCustomerName] = useState("");
+  const [customerOrderNumber, setCustomerOrderNumber] = useState("");
+  const [customerOrderLines, setCustomerOrderLines] = useState<DraftCustomerOrderLine[]>([
+    { itemId: "", quantity: "" },
+  ]);
+
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -194,6 +235,36 @@ export default function Home() {
     }
   }, []);
 
+  const loadCustomerData = useCallback(async (organizationId: string) => {
+    const [bomResult, ordersResult] = await Promise.all([
+      supabase
+        .from("bom_lines")
+        .select("id, product_item_id, component_item_id, quantity_per")
+        .eq("organization_id", organizationId)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("customer_orders")
+        .select(
+          "id, order_number, customer_name, status, customer_order_lines(id, product_item_id, quantity, items(sku, name))",
+        )
+        .eq("organization_id", organizationId)
+        .eq("status", "confirmed")
+        .order("created_at", { ascending: false }),
+    ]);
+
+    if (bomResult.error) {
+      setMessage(bomResult.error.message);
+    } else {
+      setBomLines((bomResult.data ?? []) as BomLine[]);
+    }
+
+    if (ordersResult.error) {
+      setMessage(ordersResult.error.message);
+    } else {
+      setCustomerOrders((ordersResult.data ?? []) as unknown as CustomerOrder[]);
+    }
+  }, []);
+
   const loadOrganization = useCallback(async () => {
     setLoading(true);
 
@@ -226,11 +297,15 @@ export default function Home() {
     } else {
       setOrganization(org);
       setNeedsOrganization(false);
-      await Promise.all([loadStockData(org.id), loadSupplierData(org.id)]);
+      await Promise.all([
+        loadStockData(org.id),
+        loadSupplierData(org.id),
+        loadCustomerData(org.id),
+      ]);
     }
 
     setLoading(false);
-  }, [loadStockData, loadSupplierData]);
+  }, [loadStockData, loadSupplierData, loadCustomerData]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -260,6 +335,8 @@ export default function Home() {
         setItems([]);
         setSuppliers([]);
         setSupplierOrders([]);
+        setBomLines([]);
+        setCustomerOrders([]);
         setLoading(false);
       }
     });
@@ -511,11 +588,120 @@ export default function Home() {
     setLoading(false);
   }
 
+  async function addBomLine(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!organization) return;
+
+    setLoading(true);
+    setMessage("");
+
+    const { error } = await supabase.from("bom_lines").insert({
+      organization_id: organization.id,
+      product_item_id: bomProductId,
+      component_item_id: bomComponentId,
+      quantity_per: Number(bomQuantityPer),
+    });
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      setBomProductId("");
+      setBomComponentId("");
+      setBomQuantityPer("");
+      await loadCustomerData(organization.id);
+    }
+
+    setLoading(false);
+  }
+
+  function updateCustomerOrderLine(index: number, patch: Partial<DraftCustomerOrderLine>) {
+    setCustomerOrderLines((current) =>
+      current.map((line, lineIndex) =>
+        lineIndex === index ? { ...line, ...patch } : line,
+      ),
+    );
+  }
+
+  function addCustomerOrderLine() {
+    setCustomerOrderLines((current) => [...current, { itemId: "", quantity: "" }]);
+  }
+
+  function removeCustomerOrderLine(index: number) {
+    setCustomerOrderLines((current) =>
+      current.filter((_, lineIndex) => lineIndex !== index),
+    );
+  }
+
+  async function addCustomerOrder(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!organization) return;
+
+    if (!customerName.trim()) {
+      setMessage("Indique le nom du client.");
+      return;
+    }
+
+    const validLines = customerOrderLines
+      .map((line) => ({ itemId: line.itemId, quantity: Number(line.quantity) }))
+      .filter((line) => line.itemId && line.quantity > 0);
+
+    if (validLines.length === 0) {
+      setMessage("Ajoute au moins une ligne avec un produit et une quantité.");
+      return;
+    }
+
+    setLoading(true);
+    setMessage("");
+
+    const { data: order, error: orderError } = await supabase
+      .from("customer_orders")
+      .insert({
+        organization_id: organization.id,
+        customer_name: customerName.trim(),
+        order_number: customerOrderNumber.trim() || null,
+      })
+      .select("id")
+      .single();
+
+    if (orderError || !order) {
+      setMessage(orderError?.message ?? "Erreur lors de la création de la commande.");
+      setLoading(false);
+      return;
+    }
+
+    const { error: linesError } = await supabase.from("customer_order_lines").insert(
+      validLines.map((line) => ({
+        organization_id: organization.id,
+        customer_order_id: order.id,
+        product_item_id: line.itemId,
+        quantity: line.quantity,
+      })),
+    );
+
+    if (linesError) {
+      setMessage(linesError.message);
+    } else {
+      setCustomerName("");
+      setCustomerOrderNumber("");
+      setCustomerOrderLines([{ itemId: "", quantity: "" }]);
+      await Promise.all([
+        loadCustomerData(organization.id),
+        loadStockData(organization.id),
+      ]);
+    }
+
+    setLoading(false);
+  }
+
   async function signOut() {
     await supabase.auth.signOut();
   }
 
   const alertCount = dashboard.filter((row) => row.alert_status !== "ok").length;
+  const productItems = items.filter((item) => item.item_type === "product");
+  const componentItems = items.filter((item) => item.item_type === "component");
 
   if (loading) {
     return (
@@ -1013,6 +1199,246 @@ export default function Home() {
                       </tr>
                     );
                   })}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <h2 className="font-medium">Nomenclatures (BOM)</h2>
+
+        <form
+          onSubmit={addBomLine}
+          className="flex flex-col gap-3 border rounded-lg p-4 max-w-md"
+        >
+          <label className="flex flex-col gap-1 text-sm">
+            Produit fini
+            <select
+              required
+              value={bomProductId}
+              onChange={(event) => setBomProductId(event.target.value)}
+              className="border rounded px-3 py-1.5"
+            >
+              <option value="" disabled>
+                Sélectionner un produit
+              </option>
+              {productItems.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.sku} — {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm">
+            Composant
+            <select
+              required
+              value={bomComponentId}
+              onChange={(event) => setBomComponentId(event.target.value)}
+              className="border rounded px-3 py-1.5"
+            >
+              <option value="" disabled>
+                Sélectionner un composant
+              </option>
+              {componentItems.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.sku} — {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm">
+            Quantité par produit
+            <input
+              type="number"
+              required
+              min="0.01"
+              step="0.01"
+              value={bomQuantityPer}
+              onChange={(event) => setBomQuantityPer(event.target.value)}
+              className="border rounded px-3 py-1.5"
+            />
+          </label>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="rounded bg-black text-white px-3 py-2 disabled:opacity-50"
+          >
+            Ajouter la ligne de nomenclature
+          </button>
+        </form>
+
+        <div className="overflow-x-auto border rounded-lg">
+          <table className="w-full text-sm">
+            <thead className="bg-neutral-50 dark:bg-neutral-900">
+              <tr className="text-left">
+                <th className="px-3 py-2">Produit fini</th>
+                <th className="px-3 py-2">Composant</th>
+                <th className="px-3 py-2 text-right">Quantité par produit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bomLines.map((line) => {
+                const product = items.find((item) => item.id === line.product_item_id);
+                const component = items.find(
+                  (item) => item.id === line.component_item_id,
+                );
+
+                return (
+                  <tr key={line.id} className="border-t">
+                    <td className="px-3 py-2">
+                      {product ? `${product.sku} — ${product.name}` : line.product_item_id}
+                    </td>
+                    <td className="px-3 py-2">
+                      {component
+                        ? `${component.sku} — ${component.name}`
+                        : line.component_item_id}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {quantity(line.quantity_per)}
+                    </td>
+                  </tr>
+                );
+              })}
+              {bomLines.length === 0 && (
+                <tr>
+                  <td className="px-3 py-4 text-center text-neutral-500" colSpan={3}>
+                    Aucune nomenclature pour le moment.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <h2 className="font-medium">Commandes clients</h2>
+
+        <form
+          onSubmit={addCustomerOrder}
+          className="flex flex-col gap-3 border rounded-lg p-4 max-w-md"
+        >
+          <label className="flex flex-col gap-1 text-sm">
+            Client
+            <input
+              type="text"
+              required
+              value={customerName}
+              onChange={(event) => setCustomerName(event.target.value)}
+              className="border rounded px-3 py-1.5"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm">
+            Numéro de commande (optionnel)
+            <input
+              type="text"
+              value={customerOrderNumber}
+              onChange={(event) => setCustomerOrderNumber(event.target.value)}
+              className="border rounded px-3 py-1.5"
+            />
+          </label>
+
+          <div className="flex flex-col gap-2">
+            <p className="text-sm">Lignes</p>
+            {customerOrderLines.map((line, index) => (
+              <div key={index} className="flex gap-2">
+                <select
+                  required
+                  value={line.itemId}
+                  onChange={(event) =>
+                    updateCustomerOrderLine(index, { itemId: event.target.value })
+                  }
+                  className="border rounded px-3 py-1.5 flex-1"
+                >
+                  <option value="" disabled>
+                    Produit fini
+                  </option>
+                  {productItems.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.sku} — {item.name}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  required
+                  min="0.01"
+                  step="0.01"
+                  placeholder="Qté"
+                  value={line.quantity}
+                  onChange={(event) =>
+                    updateCustomerOrderLine(index, { quantity: event.target.value })
+                  }
+                  className="border rounded px-3 py-1.5 w-24"
+                />
+                {customerOrderLines.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeCustomerOrderLine(index)}
+                    className="text-sm text-red-600 px-2"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addCustomerOrderLine}
+              className="text-sm text-left underline w-fit"
+            >
+              + Ajouter une ligne
+            </button>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="rounded bg-black text-white px-3 py-2 disabled:opacity-50"
+          >
+            Créer la commande confirmée
+          </button>
+        </form>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="font-medium text-sm">Commandes confirmées ouvertes</h3>
+
+          {customerOrders.length === 0 && (
+            <p className="text-sm text-neutral-500">
+              Aucune commande client confirmée.
+            </p>
+          )}
+
+          {customerOrders.map((order) => (
+            <div key={order.id} className="border rounded-lg p-4 flex flex-col gap-3">
+              <div className="text-sm">
+                <span className="font-medium">{order.customer_name}</span>
+                {order.order_number && ` — ${order.order_number}`}
+              </div>
+
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-neutral-500">
+                    <th className="py-1">Produit</th>
+                    <th className="py-1 text-right">Quantité</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {order.customer_order_lines.map((line) => (
+                    <tr key={line.id} className="border-t">
+                      <td className="py-1">
+                        {line.items.sku} — {line.items.name}
+                      </td>
+                      <td className="py-1 text-right">{quantity(line.quantity)}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
