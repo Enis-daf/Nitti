@@ -1456,7 +1456,7 @@ export default function Home() {
                     disabled={loading}
                     className="rounded border px-2 py-1 text-xs disabled:opacity-50"
                   >
-                    Marquer reçue
+                    Marquée livrée
                   </button>
                   <button
                     type="button"
