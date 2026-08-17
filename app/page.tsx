@@ -106,6 +106,29 @@ type ShortageLine = {
   missing: number;
 };
 
+type AvailabilityStatus = "ok" | "missing" | "too_late" | "not_ordered";
+
+type IntrantAvailability = {
+  itemId: string;
+  label: string;
+  required: number;
+  availableAtDate: number;
+  missing: number;
+  nextArrival: string | null;
+  status: AvailabilityStatus;
+};
+
+function availabilityStatusLabel(status: AvailabilityStatus) {
+  if (status === "ok") return "OK";
+  if (status === "missing") return "Manquant";
+  if (status === "too_late") return "Arrive trop tard";
+  return "Non commandé";
+}
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 type DashboardRow = {
   item_id: string;
   sku: string;
@@ -802,6 +825,102 @@ export default function Home() {
     }
 
     setLoading(false);
+  }
+
+  async function updateProductionOrderPlannedAt(orderId: string, plannedAt: string) {
+    if (!organization) return;
+
+    const { error } = await supabase
+      .from("production_orders")
+      .update({ planned_at: plannedAt || null })
+      .eq("id", orderId);
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      await loadProductionData(organization.id);
+    }
+  }
+
+  function computeAvailabilityAtDate(order: ProductionOrder): IntrantAvailability[] {
+    const targetDate = order.planned_at || todayISO();
+    const requiredInputs = bomLines.filter(
+      (line) => line.product_item_id === order.produced_item_id,
+    );
+
+    return requiredInputs.map((line) => {
+      const itemId = line.component_item_id;
+      const required = line.quantity_per * order.quantity_planned;
+
+      const physical = Number(
+        dashboard.find((row) => row.item_id === itemId)?.quantity_physical ?? 0,
+      );
+
+      let incomingByDate = 0;
+      let nextArrival: string | null = null;
+
+      for (const supplierOrder of supplierOrders) {
+        if (!supplierOrder.expected_at) continue;
+
+        for (const supplierLine of supplierOrder.supplier_order_lines) {
+          if (supplierLine.item_id !== itemId) continue;
+
+          const remaining = supplierLine.quantity_ordered - supplierLine.quantity_received;
+          if (remaining <= 0) continue;
+
+          if (nextArrival === null || supplierOrder.expected_at < nextArrival) {
+            nextArrival = supplierOrder.expected_at;
+          }
+
+          if (supplierOrder.expected_at <= targetDate) {
+            incomingByDate += remaining;
+          }
+        }
+      }
+
+      let competing = 0;
+
+      for (const otherOrder of productionOrders) {
+        if (otherOrder.id === order.id) continue;
+        if (otherOrder.planned_at !== null && otherOrder.planned_at > targetDate) continue;
+
+        const otherBomLines = bomLines.filter(
+          (otherLine) =>
+            otherLine.product_item_id === otherOrder.produced_item_id &&
+            otherLine.component_item_id === itemId,
+        );
+
+        for (const otherLine of otherBomLines) {
+          competing += otherLine.quantity_per * otherOrder.quantity_planned;
+        }
+      }
+
+      const availableAtDate = physical + incomingByDate - competing;
+      const missing = Math.max(required - availableAtDate, 0);
+
+      let status: AvailabilityStatus;
+      if (required <= availableAtDate) {
+        status = "ok";
+      } else if (nextArrival === null) {
+        status = "not_ordered";
+      } else if (nextArrival > targetDate) {
+        status = "too_late";
+      } else {
+        status = "missing";
+      }
+
+      const inputItem = items.find((item) => item.id === itemId);
+
+      return {
+        itemId,
+        label: inputItem ? `${inputItem.sku} — ${inputItem.name}` : itemId,
+        required,
+        availableAtDate,
+        missing,
+        nextArrival,
+        status,
+      };
+    });
   }
 
   function computeShortage(order: ProductionOrder): ShortageLine[] {
@@ -1737,22 +1856,32 @@ export default function Home() {
             const producedItem = items.find(
               (item) => item.id === order.produced_item_id,
             );
-            const requiredInputs = bomLines.filter(
-              (line) => line.product_item_id === order.produced_item_id,
-            );
+            const availability = computeAvailabilityAtDate(order);
 
             return (
               <div key={order.id} className="border border-border rounded-lg p-4 flex flex-col gap-3 bg-background">
                 <div className="flex items-center justify-between text-sm">
-                  <div>
-                    <span className="font-medium">
-                      {producedItem
-                        ? `${producedItem.sku} — ${producedItem.name}`
-                        : order.produced_item_id}
-                    </span>
-                    {` — quantité ${quantity(order.quantity_planned)}`}
-                    {order.planned_at && ` — prévue le ${order.planned_at}`}
-                    {order.note && ` — ${order.note}`}
+                  <div className="flex flex-col gap-1">
+                    <div>
+                      <span className="font-medium">
+                        {producedItem
+                          ? `${producedItem.sku} — ${producedItem.name}`
+                          : order.produced_item_id}
+                      </span>
+                      {` — quantité ${quantity(order.quantity_planned)}`}
+                      {order.note && ` — ${order.note}`}
+                    </div>
+                    <label className="flex items-center gap-2 text-xs text-muted">
+                      Date prévue
+                      <input
+                        type="date"
+                        value={order.planned_at ?? ""}
+                        onChange={(event) =>
+                          void updateProductionOrderPlannedAt(order.id, event.target.value)
+                        }
+                        className="border border-border rounded-md px-2 py-1 text-xs bg-background text-foreground focus:outline-none focus:border-accent"
+                      />
+                    </label>
                   </div>
                   <button
                     type="button"
@@ -1764,35 +1893,51 @@ export default function Home() {
                   </button>
                 </div>
 
-                {requiredInputs.length > 0 ? (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-muted">
-                        <th className="py-1">Intrant nécessaire</th>
-                        <th className="py-1 text-right">Quantité requise</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {requiredInputs.map((line) => {
-                        const inputItem = items.find(
-                          (item) => item.id === line.component_item_id,
-                        );
-
-                        return (
-                          <tr key={line.id} className="border-t border-border">
-                            <td className="py-1">
-                              {inputItem
-                                ? `${inputItem.sku} — ${inputItem.name}`
-                                : line.component_item_id}
+                {availability.length > 0 ? (
+                  <div className="flex flex-col gap-1">
+                    <p className="text-xs text-muted">
+                      Disponibilité des intrants à la date prévue
+                      {!order.planned_at && " (aucune date définie — calcul à partir d'aujourd'hui)"}
+                    </p>
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-muted">
+                          <th className="py-1">Intrant</th>
+                          <th className="py-1 text-right">Besoin</th>
+                          <th className="py-1 text-right">Disponible à date</th>
+                          <th className="py-1 text-right">Manquant</th>
+                          <th className="py-1">Prochaine arrivée</th>
+                          <th className="py-1">Statut</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {availability.map((line) => (
+                          <tr key={line.itemId} className="border-t border-border">
+                            <td className="py-1">{line.label}</td>
+                            <td className="py-1 text-right">{quantity(line.required)}</td>
+                            <td className="py-1 text-right">
+                              {quantity(line.availableAtDate)}
                             </td>
                             <td className="py-1 text-right">
-                              {quantity(line.quantity_per * order.quantity_planned)}
+                              {line.missing > 0 ? quantity(line.missing) : "—"}
+                            </td>
+                            <td className="py-1">{line.nextArrival ?? "Aucune"}</td>
+                            <td
+                              className={
+                                line.status === "ok"
+                                  ? "py-1"
+                                  : line.status === "too_late"
+                                    ? "py-1 text-orange-600"
+                                    : "py-1 text-red-600"
+                              }
+                            >
+                              {availabilityStatusLabel(line.status)}
                             </td>
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 ) : (
                   <p className="text-xs text-muted">
                     Aucune nomenclature définie pour cette référence.
