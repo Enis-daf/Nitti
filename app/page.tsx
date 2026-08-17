@@ -878,6 +878,20 @@ export default function Home() {
         }
       }
 
+      for (const otherOrder of productionOrders) {
+        if (otherOrder.id === order.id) continue;
+        if (otherOrder.produced_item_id !== itemId) continue;
+        if (otherOrder.planned_at === null) continue;
+
+        if (nextArrival === null || otherOrder.planned_at < nextArrival) {
+          nextArrival = otherOrder.planned_at;
+        }
+
+        if (otherOrder.planned_at <= targetDate) {
+          incomingByDate += otherOrder.quantity_planned;
+        }
+      }
+
       let competing = 0;
 
       for (const otherOrder of productionOrders) {
