@@ -161,8 +161,8 @@ export default function Home() {
   >({});
 
   const [bomLines, setBomLines] = useState<BomLine[]>([]);
-  const [bomProductId, setBomProductId] = useState("");
-  const [bomComponentId, setBomComponentId] = useState("");
+  const [bomProducedItemId, setBomProducedItemId] = useState("");
+  const [bomInputItemId, setBomInputItemId] = useState("");
   const [bomQuantityPer, setBomQuantityPer] = useState("");
 
   const [customerOrders, setCustomerOrders] = useState<CustomerOrder[]>([]);
@@ -598,16 +598,16 @@ export default function Home() {
 
     const { error } = await supabase.from("bom_lines").insert({
       organization_id: organization.id,
-      product_item_id: bomProductId,
-      component_item_id: bomComponentId,
+      product_item_id: bomProducedItemId,
+      component_item_id: bomInputItemId,
       quantity_per: Number(bomQuantityPer),
     });
 
     if (error) {
       setMessage(error.message);
     } else {
-      setBomProductId("");
-      setBomComponentId("");
+      setBomProducedItemId("");
+      setBomInputItemId("");
       setBomQuantityPer("");
       await loadCustomerData(organization.id);
     }
@@ -872,8 +872,8 @@ export default function Home() {
               }
               className="border rounded px-3 py-1.5"
             >
-              <option value="component">Composant</option>
-              <option value="product">Produit</option>
+              <option value="component">Intrant</option>
+              <option value="product">Produit fini</option>
             </select>
           </label>
 
@@ -1214,17 +1214,17 @@ export default function Home() {
           className="flex flex-col gap-3 border rounded-lg p-4 max-w-md"
         >
           <label className="flex flex-col gap-1 text-sm">
-            Produit fini
+            Référence produite
             <select
               required
-              value={bomProductId}
-              onChange={(event) => setBomProductId(event.target.value)}
+              value={bomProducedItemId}
+              onChange={(event) => setBomProducedItemId(event.target.value)}
               className="border rounded px-3 py-1.5"
             >
               <option value="" disabled>
-                Sélectionner un produit
+                Sélectionner une référence
               </option>
-              {productItems.map((item) => (
+              {items.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.sku} — {item.name}
                 </option>
@@ -1233,15 +1233,15 @@ export default function Home() {
           </label>
 
           <label className="flex flex-col gap-1 text-sm">
-            Composant
+            Intrant
             <select
               required
-              value={bomComponentId}
-              onChange={(event) => setBomComponentId(event.target.value)}
+              value={bomInputItemId}
+              onChange={(event) => setBomInputItemId(event.target.value)}
               className="border rounded px-3 py-1.5"
             >
               <option value="" disabled>
-                Sélectionner un composant
+                Sélectionner un intrant
               </option>
               {componentItems.map((item) => (
                 <option key={item.id} value={item.id}>
@@ -1252,7 +1252,7 @@ export default function Home() {
           </label>
 
           <label className="flex flex-col gap-1 text-sm">
-            Quantité par produit
+            Quantité par référence produite
             <input
               type="number"
               required
@@ -1277,9 +1277,9 @@ export default function Home() {
           <table className="w-full text-sm">
             <thead className="bg-neutral-50 dark:bg-neutral-900">
               <tr className="text-left">
-                <th className="px-3 py-2">Produit fini</th>
-                <th className="px-3 py-2">Composant</th>
-                <th className="px-3 py-2 text-right">Quantité par produit</th>
+                <th className="px-3 py-2">Référence produite</th>
+                <th className="px-3 py-2">Intrant</th>
+                <th className="px-3 py-2 text-right">Quantité par référence produite</th>
               </tr>
             </thead>
             <tbody>
@@ -1426,7 +1426,7 @@ export default function Home() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-neutral-500">
-                    <th className="py-1">Produit</th>
+                    <th className="py-1">Produit fini</th>
                     <th className="py-1 text-right">Quantité</th>
                   </tr>
                 </thead>
@@ -1471,7 +1471,7 @@ export default function Home() {
                   <td className="px-3 py-2">{row.sku}</td>
                   <td className="px-3 py-2">{row.name}</td>
                   <td className="px-3 py-2">
-                    {row.item_type === "component" ? "Composant" : "Produit"}
+                    {row.item_type === "component" ? "Intrant" : "Produit fini"}
                   </td>
                   <td className="px-3 py-2 text-right">
                     {quantity(row.quantity_physical)}
