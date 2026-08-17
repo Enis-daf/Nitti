@@ -906,7 +906,7 @@ export default function Home() {
       <main className="flex-1 flex items-center justify-center p-8">
         <form
           onSubmit={handleAuth}
-          className="w-full max-w-sm flex flex-col gap-4 border rounded-lg p-6"
+          className="w-full max-w-sm flex flex-col gap-4 border border-border rounded-lg p-6 bg-background"
         >
           <h1 className="text-xl font-semibold">Nitti</h1>
 
@@ -914,8 +914,8 @@ export default function Home() {
             <button
               type="button"
               onClick={() => setMode("signin")}
-              className={`flex-1 rounded border px-3 py-1.5 ${
-                mode === "signin" ? "bg-black text-white" : ""
+              className={`flex-1 rounded-md border border-border px-3 py-1.5 transition-colors ${
+                mode === "signin" ? "bg-accent text-white border-accent" : ""
               }`}
             >
               Connexion
@@ -923,8 +923,8 @@ export default function Home() {
             <button
               type="button"
               onClick={() => setMode("signup")}
-              className={`flex-1 rounded border px-3 py-1.5 ${
-                mode === "signup" ? "bg-black text-white" : ""
+              className={`flex-1 rounded-md border border-border px-3 py-1.5 transition-colors ${
+                mode === "signup" ? "bg-accent text-white border-accent" : ""
               }`}
             >
               Créer un compte
@@ -938,7 +938,7 @@ export default function Home() {
               required
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              className="border rounded px-3 py-1.5"
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
             />
           </label>
 
@@ -950,14 +950,14 @@ export default function Home() {
               minLength={6}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="border rounded px-3 py-1.5"
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
             />
           </label>
 
           <button
             type="submit"
             disabled={loading}
-            className="rounded bg-black text-white px-3 py-2 disabled:opacity-50"
+            className="rounded-md bg-accent text-white px-3 py-2 font-medium transition-colors hover:bg-accent-dark disabled:opacity-50 disabled:hover:bg-accent"
           >
             {mode === "signup" ? "Créer un compte" : "Se connecter"}
           </button>
@@ -976,7 +976,7 @@ export default function Home() {
             event.preventDefault();
             void createOrganization();
           }}
-          className="w-full max-w-sm flex flex-col gap-4 border rounded-lg p-6"
+          className="w-full max-w-sm flex flex-col gap-4 border border-border rounded-lg p-6 bg-background"
         >
           <h1 className="text-xl font-semibold">Créer ton organisation</h1>
 
@@ -988,14 +988,14 @@ export default function Home() {
               value={organizationName}
               onChange={(event) => setOrganizationName(event.target.value)}
               placeholder="Nom de l'entreprise"
-              className="border rounded px-3 py-1.5"
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
             />
           </label>
 
           <button
             type="submit"
             disabled={loading}
-            className="rounded bg-black text-white px-3 py-2 disabled:opacity-50"
+            className="rounded-md bg-accent text-white px-3 py-2 font-medium transition-colors hover:bg-accent-dark disabled:opacity-50 disabled:hover:bg-accent"
           >
             Créer
           </button>
@@ -1011,12 +1011,12 @@ export default function Home() {
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">{organization?.name}</h1>
-          <p className="text-sm text-neutral-500">{userEmail}</p>
+          <p className="text-sm text-muted">{userEmail}</p>
         </div>
         <button
           type="button"
           onClick={() => void signOut()}
-          className="rounded border px-3 py-1.5 text-sm"
+          className="rounded-md border border-border px-3 py-1.5 text-sm transition-colors hover:border-accent hover:text-accent"
         >
           Déconnexion
         </button>
@@ -1027,7 +1027,7 @@ export default function Home() {
       <section className="grid gap-6 md:grid-cols-2">
         <form
           onSubmit={addItem}
-          className="flex flex-col gap-3 border rounded-lg p-4"
+          className="flex flex-col gap-3 border border-border rounded-lg p-4 bg-background"
         >
           <h2 className="font-medium">Nouvelle référence</h2>
 
@@ -1038,7 +1038,7 @@ export default function Home() {
               required
               value={itemSku}
               onChange={(event) => setItemSku(event.target.value)}
-              className="border rounded px-3 py-1.5"
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
             />
           </label>
 
@@ -1049,7 +1049,7 @@ export default function Home() {
               required
               value={itemName}
               onChange={(event) => setItemName(event.target.value)}
-              className="border rounded px-3 py-1.5"
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
             />
           </label>
 
@@ -1060,7 +1060,7 @@ export default function Home() {
               onChange={(event) =>
                 setItemType(event.target.value as "component" | "product")
               }
-              className="border rounded px-3 py-1.5"
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
             >
               <option value="component">Intrant</option>
               <option value="product">Produit fini</option>
@@ -1074,14 +1074,14 @@ export default function Home() {
               min="0"
               value={itemThreshold}
               onChange={(event) => setItemThreshold(event.target.value)}
-              className="border rounded px-3 py-1.5"
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
             />
           </label>
 
           <button
             type="submit"
             disabled={loading}
-            className="rounded bg-black text-white px-3 py-2 disabled:opacity-50"
+            className="rounded-md bg-accent text-white px-3 py-2 font-medium transition-colors hover:bg-accent-dark disabled:opacity-50 disabled:hover:bg-accent"
           >
             Ajouter la référence
           </button>
@@ -1089,7 +1089,7 @@ export default function Home() {
 
         <form
           onSubmit={addStockMovement}
-          className="flex flex-col gap-3 border rounded-lg p-4"
+          className="flex flex-col gap-3 border border-border rounded-lg p-4 bg-background"
         >
           <h2 className="font-medium">Mouvement de stock</h2>
 
@@ -1099,7 +1099,7 @@ export default function Home() {
               required
               value={movementItemId}
               onChange={(event) => setMovementItemId(event.target.value)}
-              className="border rounded px-3 py-1.5"
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
             >
               <option value="" disabled>
                 Sélectionner une référence
@@ -1121,7 +1121,7 @@ export default function Home() {
                   event.target.value as "initial_count" | "adjustment",
                 )
               }
-              className="border rounded px-3 py-1.5"
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
             >
               <option value="initial_count">Stock initial</option>
               <option value="adjustment">Ajustement</option>
@@ -1136,7 +1136,7 @@ export default function Home() {
               step="0.01"
               value={movementQuantity}
               onChange={(event) => setMovementQuantity(event.target.value)}
-              className="border rounded px-3 py-1.5"
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
             />
           </label>
 
@@ -1146,14 +1146,14 @@ export default function Home() {
               type="text"
               value={movementNote}
               onChange={(event) => setMovementNote(event.target.value)}
-              className="border rounded px-3 py-1.5"
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
             />
           </label>
 
           <button
             type="submit"
             disabled={loading || !movementItemId}
-            className="rounded bg-black text-white px-3 py-2 disabled:opacity-50"
+            className="rounded-md bg-accent text-white px-3 py-2 font-medium transition-colors hover:bg-accent-dark disabled:opacity-50 disabled:hover:bg-accent"
           >
             Enregistrer le mouvement
           </button>
@@ -1166,7 +1166,7 @@ export default function Home() {
         <div className="grid gap-6 md:grid-cols-2">
           <form
             onSubmit={addSupplier}
-            className="flex flex-col gap-3 border rounded-lg p-4"
+            className="flex flex-col gap-3 border border-border rounded-lg p-4 bg-background"
           >
             <h3 className="font-medium text-sm">Nouveau fournisseur</h3>
 
@@ -1177,14 +1177,14 @@ export default function Home() {
                 required
                 value={supplierName}
                 onChange={(event) => setSupplierName(event.target.value)}
-                className="border rounded px-3 py-1.5"
+                className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
               />
             </label>
 
             <button
               type="submit"
               disabled={loading}
-              className="rounded bg-black text-white px-3 py-2 disabled:opacity-50"
+              className="rounded-md bg-accent text-white px-3 py-2 font-medium transition-colors hover:bg-accent-dark disabled:opacity-50 disabled:hover:bg-accent"
             >
               Ajouter le fournisseur
             </button>
@@ -1192,7 +1192,7 @@ export default function Home() {
 
           <form
             onSubmit={addSupplierOrder}
-            className="flex flex-col gap-3 border rounded-lg p-4"
+            className="flex flex-col gap-3 border border-border rounded-lg p-4 bg-background"
           >
             <h3 className="font-medium text-sm">Nouvelle commande fournisseur</h3>
 
@@ -1201,7 +1201,7 @@ export default function Home() {
               <select
                 value={orderSupplierId}
                 onChange={(event) => setOrderSupplierId(event.target.value)}
-                className="border rounded px-3 py-1.5"
+                className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
               >
                 <option value="">Aucun</option>
                 {suppliers.map((supplier) => (
@@ -1218,7 +1218,7 @@ export default function Home() {
                 type="text"
                 value={orderNumber}
                 onChange={(event) => setOrderNumber(event.target.value)}
-                className="border rounded px-3 py-1.5"
+                className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
               />
             </label>
 
@@ -1228,7 +1228,7 @@ export default function Home() {
                 type="date"
                 value={orderExpectedAt}
                 onChange={(event) => setOrderExpectedAt(event.target.value)}
-                className="border rounded px-3 py-1.5"
+                className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
               />
             </label>
 
@@ -1242,7 +1242,7 @@ export default function Home() {
                     onChange={(event) =>
                       updateOrderLine(index, { itemId: event.target.value })
                     }
-                    className="border rounded px-3 py-1.5 flex-1"
+                    className="border border-border rounded-md px-3 py-1.5 flex-1 bg-background text-foreground focus:outline-none focus:border-accent"
                   >
                     <option value="" disabled>
                       Article
@@ -1263,13 +1263,13 @@ export default function Home() {
                     onChange={(event) =>
                       updateOrderLine(index, { quantity: event.target.value })
                     }
-                    className="border rounded px-3 py-1.5 w-24"
+                    className="border border-border rounded-md px-3 py-1.5 w-24 bg-background text-foreground focus:outline-none focus:border-accent"
                   />
                   {orderLines.length > 1 && (
                     <button
                       type="button"
                       onClick={() => removeOrderLine(index)}
-                      className="text-sm text-red-600 px-2"
+                      className="text-sm text-red-600 hover:text-red-700 px-2"
                     >
                       ✕
                     </button>
@@ -1288,7 +1288,7 @@ export default function Home() {
             <button
               type="submit"
               disabled={loading}
-              className="rounded bg-black text-white px-3 py-2 disabled:opacity-50"
+              className="rounded-md bg-accent text-white px-3 py-2 font-medium transition-colors hover:bg-accent-dark disabled:opacity-50 disabled:hover:bg-accent"
             >
               Créer la commande
             </button>
@@ -1299,13 +1299,13 @@ export default function Home() {
           <h3 className="font-medium text-sm">Commandes ouvertes</h3>
 
           {supplierOrders.length === 0 && (
-            <p className="text-sm text-neutral-500">
+            <p className="text-sm text-muted">
               Aucune commande fournisseur ouverte.
             </p>
           )}
 
           {supplierOrders.map((order) => (
-            <div key={order.id} className="border rounded-lg p-4 flex flex-col gap-3">
+            <div key={order.id} className="border border-border rounded-lg p-4 flex flex-col gap-3 bg-background">
               <div className="flex items-center justify-between text-sm">
                 <div>
                   <span className="font-medium">
@@ -1327,7 +1327,7 @@ export default function Home() {
 
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-left text-neutral-500">
+                  <tr className="text-left text-muted">
                     <th className="py-1">Article</th>
                     <th className="py-1 text-right">Commandé</th>
                     <th className="py-1 text-right">Reçu</th>
@@ -1341,7 +1341,7 @@ export default function Home() {
                     const draft = receiptDrafts[line.id];
 
                     return (
-                      <tr key={line.id} className="border-t">
+                      <tr key={line.id} className="border-t border-border">
                         <td className="py-1">
                           {line.items.sku} — {line.items.name}
                         </td>
@@ -1371,13 +1371,13 @@ export default function Home() {
                                     },
                                   }))
                                 }
-                                className="border rounded px-2 py-1 w-20"
+                                className="border border-border rounded-md px-2 py-1 w-20 bg-background text-foreground focus:outline-none focus:border-accent"
                               />
                               <button
                                 type="button"
                                 onClick={() => void receiveLine(line.id)}
                                 disabled={loading}
-                                className="rounded border px-2 py-1 disabled:opacity-50"
+                                className="rounded-md border border-border px-2 py-1 transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
                               >
                                 Réceptionner
                               </button>
@@ -1401,7 +1401,7 @@ export default function Home() {
 
         <form
           onSubmit={addBomLine}
-          className="flex flex-col gap-3 border rounded-lg p-4 max-w-md"
+          className="flex flex-col gap-3 border border-border rounded-lg p-4 max-w-md bg-background"
         >
           <label className="flex flex-col gap-1 text-sm">
             Référence produite
@@ -1409,7 +1409,7 @@ export default function Home() {
               required
               value={bomProducedItemId}
               onChange={(event) => setBomProducedItemId(event.target.value)}
-              className="border rounded px-3 py-1.5"
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
             >
               <option value="" disabled>
                 Sélectionner une référence
@@ -1428,7 +1428,7 @@ export default function Home() {
               required
               value={bomInputItemId}
               onChange={(event) => setBomInputItemId(event.target.value)}
-              className="border rounded px-3 py-1.5"
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
             >
               <option value="" disabled>
                 Sélectionner un intrant
@@ -1450,22 +1450,22 @@ export default function Home() {
               step="0.01"
               value={bomQuantityPer}
               onChange={(event) => setBomQuantityPer(event.target.value)}
-              className="border rounded px-3 py-1.5"
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
             />
           </label>
 
           <button
             type="submit"
             disabled={loading}
-            className="rounded bg-black text-white px-3 py-2 disabled:opacity-50"
+            className="rounded-md bg-accent text-white px-3 py-2 font-medium transition-colors hover:bg-accent-dark disabled:opacity-50 disabled:hover:bg-accent"
           >
             Ajouter la ligne de nomenclature
           </button>
         </form>
 
-        <div className="overflow-x-auto border rounded-lg">
+        <div className="overflow-x-auto border border-border rounded-lg">
           <table className="w-full text-sm">
-            <thead className="bg-neutral-50 dark:bg-neutral-900">
+            <thead className="bg-surface-mint">
               <tr className="text-left">
                 <th className="px-3 py-2">Référence produite</th>
                 <th className="px-3 py-2">Intrant</th>
@@ -1480,7 +1480,7 @@ export default function Home() {
                 );
 
                 return (
-                  <tr key={line.id} className="border-t">
+                  <tr key={line.id} className="border-t border-border">
                     <td className="px-3 py-2">
                       {product ? `${product.sku} — ${product.name}` : line.product_item_id}
                     </td>
@@ -1497,7 +1497,7 @@ export default function Home() {
               })}
               {bomLines.length === 0 && (
                 <tr>
-                  <td className="px-3 py-4 text-center text-neutral-500" colSpan={3}>
+                  <td className="px-3 py-4 text-center text-muted" colSpan={3}>
                     Aucune nomenclature pour le moment.
                   </td>
                 </tr>
@@ -1512,7 +1512,7 @@ export default function Home() {
 
         <form
           onSubmit={addCustomerOrder}
-          className="flex flex-col gap-3 border rounded-lg p-4 max-w-md"
+          className="flex flex-col gap-3 border border-border rounded-lg p-4 max-w-md bg-background"
         >
           <label className="flex flex-col gap-1 text-sm">
             Client
@@ -1521,7 +1521,7 @@ export default function Home() {
               required
               value={customerName}
               onChange={(event) => setCustomerName(event.target.value)}
-              className="border rounded px-3 py-1.5"
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
             />
           </label>
 
@@ -1531,7 +1531,7 @@ export default function Home() {
               type="text"
               value={customerOrderNumber}
               onChange={(event) => setCustomerOrderNumber(event.target.value)}
-              className="border rounded px-3 py-1.5"
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
             />
           </label>
 
@@ -1545,7 +1545,7 @@ export default function Home() {
                   onChange={(event) =>
                     updateCustomerOrderLine(index, { itemId: event.target.value })
                   }
-                  className="border rounded px-3 py-1.5 flex-1"
+                  className="border border-border rounded-md px-3 py-1.5 flex-1 bg-background text-foreground focus:outline-none focus:border-accent"
                 >
                   <option value="" disabled>
                     Produit fini
@@ -1566,13 +1566,13 @@ export default function Home() {
                   onChange={(event) =>
                     updateCustomerOrderLine(index, { quantity: event.target.value })
                   }
-                  className="border rounded px-3 py-1.5 w-24"
+                  className="border border-border rounded-md px-3 py-1.5 w-24 bg-background text-foreground focus:outline-none focus:border-accent"
                 />
                 {customerOrderLines.length > 1 && (
                   <button
                     type="button"
                     onClick={() => removeCustomerOrderLine(index)}
-                    className="text-sm text-red-600 px-2"
+                    className="text-sm text-red-600 hover:text-red-700 px-2"
                   >
                     ✕
                   </button>
@@ -1591,7 +1591,7 @@ export default function Home() {
           <button
             type="submit"
             disabled={loading}
-            className="rounded bg-black text-white px-3 py-2 disabled:opacity-50"
+            className="rounded-md bg-accent text-white px-3 py-2 font-medium transition-colors hover:bg-accent-dark disabled:opacity-50 disabled:hover:bg-accent"
           >
             Créer la commande confirmée
           </button>
@@ -1601,13 +1601,13 @@ export default function Home() {
           <h3 className="font-medium text-sm">Commandes confirmées ouvertes</h3>
 
           {customerOrders.length === 0 && (
-            <p className="text-sm text-neutral-500">
+            <p className="text-sm text-muted">
               Aucune commande client confirmée.
             </p>
           )}
 
           {customerOrders.map((order) => (
-            <div key={order.id} className="border rounded-lg p-4 flex flex-col gap-3">
+            <div key={order.id} className="border border-border rounded-lg p-4 flex flex-col gap-3 bg-background">
               <div className="flex items-center justify-between text-sm">
                 <div>
                   <span className="font-medium">{order.customer_name}</span>
@@ -1618,7 +1618,7 @@ export default function Home() {
                     type="button"
                     onClick={() => void updateCustomerOrderStatus(order.id, "fulfilled")}
                     disabled={loading}
-                    className="rounded border px-2 py-1 text-xs disabled:opacity-50"
+                    className="rounded-md border border-border px-2 py-1 text-xs transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
                   >
                     Marquée livrée
                   </button>
@@ -1626,7 +1626,7 @@ export default function Home() {
                     type="button"
                     onClick={() => void updateCustomerOrderStatus(order.id, "cancelled")}
                     disabled={loading}
-                    className="rounded border px-2 py-1 text-xs text-red-600 disabled:opacity-50"
+                    className="rounded-md border border-red-300 px-2 py-1 text-xs text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50"
                   >
                     Annuler
                   </button>
@@ -1635,14 +1635,14 @@ export default function Home() {
 
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-left text-neutral-500">
+                  <tr className="text-left text-muted">
                     <th className="py-1">Produit fini</th>
                     <th className="py-1 text-right">Quantité</th>
                   </tr>
                 </thead>
                 <tbody>
                   {order.customer_order_lines.map((line) => (
-                    <tr key={line.id} className="border-t">
+                    <tr key={line.id} className="border-t border-border">
                       <td className="py-1">
                         {line.items.sku} — {line.items.name}
                       </td>
@@ -1661,7 +1661,7 @@ export default function Home() {
 
         <form
           onSubmit={addProductionOrder}
-          className="flex flex-col gap-3 border rounded-lg p-4 max-w-md"
+          className="flex flex-col gap-3 border border-border rounded-lg p-4 max-w-md bg-background"
         >
           <label className="flex flex-col gap-1 text-sm">
             Référence à produire
@@ -1669,7 +1669,7 @@ export default function Home() {
               required
               value={productionItemId}
               onChange={(event) => setProductionItemId(event.target.value)}
-              className="border rounded px-3 py-1.5"
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
             >
               <option value="" disabled>
                 Sélectionner une référence
@@ -1691,7 +1691,7 @@ export default function Home() {
               step="0.01"
               value={productionQuantity}
               onChange={(event) => setProductionQuantity(event.target.value)}
-              className="border rounded px-3 py-1.5"
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
             />
           </label>
 
@@ -1701,7 +1701,7 @@ export default function Home() {
               type="date"
               value={productionPlannedAt}
               onChange={(event) => setProductionPlannedAt(event.target.value)}
-              className="border rounded px-3 py-1.5"
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
             />
           </label>
 
@@ -1711,14 +1711,14 @@ export default function Home() {
               type="text"
               value={productionNote}
               onChange={(event) => setProductionNote(event.target.value)}
-              className="border rounded px-3 py-1.5"
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
             />
           </label>
 
           <button
             type="submit"
             disabled={loading}
-            className="rounded bg-black text-white px-3 py-2 disabled:opacity-50"
+            className="rounded-md bg-accent text-white px-3 py-2 font-medium transition-colors hover:bg-accent-dark disabled:opacity-50 disabled:hover:bg-accent"
           >
             Créer l&apos;ordre de production
           </button>
@@ -1728,7 +1728,7 @@ export default function Home() {
           <h3 className="font-medium text-sm">Ordres planifiés</h3>
 
           {productionOrders.length === 0 && (
-            <p className="text-sm text-neutral-500">
+            <p className="text-sm text-muted">
               Aucun ordre de production en cours.
             </p>
           )}
@@ -1742,7 +1742,7 @@ export default function Home() {
             );
 
             return (
-              <div key={order.id} className="border rounded-lg p-4 flex flex-col gap-3">
+              <div key={order.id} className="border border-border rounded-lg p-4 flex flex-col gap-3 bg-background">
                 <div className="flex items-center justify-between text-sm">
                   <div>
                     <span className="font-medium">
@@ -1758,7 +1758,7 @@ export default function Home() {
                     type="button"
                     onClick={() => handleCompleteClick(order)}
                     disabled={loading}
-                    className="rounded border px-2 py-1 text-xs disabled:opacity-50"
+                    className="rounded-md border border-border px-2 py-1 text-xs transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
                   >
                     Terminer la production
                   </button>
@@ -1767,7 +1767,7 @@ export default function Home() {
                 {requiredInputs.length > 0 ? (
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="text-left text-neutral-500">
+                      <tr className="text-left text-muted">
                         <th className="py-1">Intrant nécessaire</th>
                         <th className="py-1 text-right">Quantité requise</th>
                       </tr>
@@ -1779,7 +1779,7 @@ export default function Home() {
                         );
 
                         return (
-                          <tr key={line.id} className="border-t">
+                          <tr key={line.id} className="border-t border-border">
                             <td className="py-1">
                               {inputItem
                                 ? `${inputItem.sku} — ${inputItem.name}`
@@ -1794,20 +1794,20 @@ export default function Home() {
                     </tbody>
                   </table>
                 ) : (
-                  <p className="text-xs text-neutral-500">
+                  <p className="text-xs text-muted">
                     Aucune nomenclature définie pour cette référence.
                   </p>
                 )}
 
                 {shortageByOrder[order.id] && (
-                  <div className="border border-red-300 rounded p-3 flex flex-col gap-2 bg-red-50 dark:bg-red-950">
+                  <div className="border border-red-300 rounded-lg p-3 flex flex-col gap-2 bg-red-50">
                     <p className="text-sm font-medium text-red-700">
                       Stock intrant insuffisant
                     </p>
 
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="text-left text-neutral-500">
+                        <tr className="text-left text-muted">
                           <th className="py-1">Intrant</th>
                           <th className="py-1 text-right">Besoin</th>
                           <th className="py-1 text-right">Disponible</th>
@@ -1816,7 +1816,7 @@ export default function Home() {
                       </thead>
                       <tbody>
                         {shortageByOrder[order.id].map((line) => (
-                          <tr key={line.itemId} className="border-t">
+                          <tr key={line.itemId} className="border-t border-border">
                             <td className="py-1">{line.label}</td>
                             <td className="py-1 text-right">{quantity(line.required)}</td>
                             <td className="py-1 text-right">{quantity(line.available)}</td>
@@ -1840,7 +1840,7 @@ export default function Home() {
                             [order.id]: event.target.value,
                           }))
                         }
-                        className="border rounded px-3 py-1.5"
+                        className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
                       />
                     </label>
 
@@ -1848,7 +1848,7 @@ export default function Home() {
                       type="button"
                       onClick={() => forceCompleteProductionOrder(order.id)}
                       disabled={loading}
-                      className="rounded border border-red-600 text-red-600 px-3 py-2 disabled:opacity-50 w-fit"
+                      className="rounded-md border border-red-600 text-red-600 px-3 py-2 font-medium transition-colors hover:bg-red-50 disabled:opacity-50 w-fit"
                     >
                       Terminer quand même
                     </button>
@@ -1865,9 +1865,9 @@ export default function Home() {
           Stock {alertCount > 0 && `— ${alertCount} alerte(s)`}
         </h2>
 
-        <div className="overflow-x-auto border rounded-lg">
+        <div className="overflow-x-auto border border-border rounded-lg">
           <table className="w-full text-sm">
-            <thead className="bg-neutral-50 dark:bg-neutral-900">
+            <thead className="bg-surface-mint">
               <tr className="text-left">
                 <th className="px-3 py-2">SKU</th>
                 <th className="px-3 py-2">Nom</th>
@@ -1881,7 +1881,7 @@ export default function Home() {
             </thead>
             <tbody>
               {dashboard.map((row) => (
-                <tr key={row.item_id} className="border-t">
+                <tr key={row.item_id} className="border-t border-border">
                   <td className="px-3 py-2">{row.sku}</td>
                   <td className="px-3 py-2">{row.name}</td>
                   <td className="px-3 py-2">
@@ -1912,7 +1912,7 @@ export default function Home() {
               ))}
               {dashboard.length === 0 && (
                 <tr>
-                  <td className="px-3 py-4 text-center text-neutral-500" colSpan={8}>
+                  <td className="px-3 py-4 text-center text-muted" colSpan={8}>
                     Aucune référence pour le moment.
                   </td>
                 </tr>
