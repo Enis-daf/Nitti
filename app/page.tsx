@@ -1,6 +1,12 @@
 "use client";
 
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
 import { supabase } from "../lib/supabase";
 
 type Organization = {
@@ -160,6 +166,48 @@ function alertLabel(status: DashboardRow["alert_status"]) {
   }
   if (status === "low_physical_stock") return "Stock physique bas";
   return "OK";
+}
+
+function CollapsibleSection({
+  id,
+  title,
+  defaultOpen,
+  children,
+}: {
+  id: string;
+  title: string;
+  defaultOpen: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem(`nitti-section-${id}`);
+    if (stored !== null) setOpen(stored === "open");
+  }, [id]);
+
+  useEffect(() => {
+    window.localStorage.setItem(`nitti-section-${id}`, open ? "open" : "closed");
+  }, [id, open]);
+
+  return (
+    <section className="border border-border rounded-lg bg-background">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className="w-full flex items-center justify-between px-4 py-3 text-left"
+      >
+        <h2 className="font-medium">{title}</h2>
+        <span
+          className={`text-muted transition-transform ${open ? "rotate-180" : ""}`}
+          aria-hidden="true"
+        >
+          ▾
+        </span>
+      </button>
+      {open && <div className="px-4 pb-4 flex flex-col gap-4">{children}</div>}
+    </section>
+  );
 }
 
 export default function Home() {
@@ -1315,13 +1363,87 @@ export default function Home() {
 
       {message && <p className="text-sm text-red-600">{message}</p>}
 
-      <section className="grid gap-6 md:grid-cols-2">
+      <div className="flex flex-col lg:flex-row gap-6 items-start">
+        <aside className="w-full lg:w-96 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto flex flex-col gap-4 border border-border rounded-lg p-4 bg-background">
+          <div>
+            <h2 className="font-medium">Dashboard & alertes</h2>
+            <div className="flex gap-6 mt-2 text-sm">
+              <div>
+                <p className="text-muted text-xs">Références</p>
+                <p className="text-xl font-semibold">{dashboard.length}</p>
+              </div>
+              <div>
+                <p className="text-muted text-xs">Alertes</p>
+                <p className={`text-xl font-semibold ${alertCount > 0 ? "text-red-600" : ""}`}>
+                  {alertCount}
+                </p>
+              </div>
+            </div>
+          </div>
+
+        <div className="overflow-x-auto border border-border rounded-lg">
+          <table className="w-full text-sm">
+            <thead className="bg-surface-mint">
+              <tr className="text-left">
+                <th className="px-3 py-2">SKU</th>
+                <th className="px-3 py-2">Nom</th>
+                <th className="px-3 py-2">Type</th>
+                <th className="px-3 py-2 text-right">Stock physique</th>
+                <th className="px-3 py-2 text-right">Commandé</th>
+                <th className="px-3 py-2 text-right">Réservé</th>
+                <th className="px-3 py-2 text-right">Disponible</th>
+                <th className="px-3 py-2">Alerte</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dashboard.map((row) => (
+                <tr key={row.item_id} className="border-t border-border">
+                  <td className="px-3 py-2">{row.sku}</td>
+                  <td className="px-3 py-2">{row.name}</td>
+                  <td className="px-3 py-2">
+                    {row.item_type === "component" ? "Intrant" : "Produit fini"}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {quantity(row.quantity_physical)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {quantity(row.quantity_ordered)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {quantity(row.quantity_reserved)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {quantity(row.quantity_available)}
+                  </td>
+                  <td className="px-3 py-2">
+                    {row.alert_status === "ok" ? (
+                      "OK"
+                    ) : (
+                      <span className="text-red-600">
+                        {alertLabel(row.alert_status)}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {dashboard.length === 0 && (
+                <tr>
+                  <td className="px-3 py-4 text-center text-muted" colSpan={8}>
+                    Aucune référence pour le moment.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        </aside>
+
+        <div className="flex-1 min-w-0 flex flex-col gap-4">
+          <CollapsibleSection id="references" title="Références" defaultOpen={true}>
         <form
           onSubmit={addItem}
           className="flex flex-col gap-3 border border-border rounded-lg p-4 bg-background"
         >
-          <h2 className="font-medium">Nouvelle référence</h2>
-
           <label className="flex flex-col gap-1 text-sm">
             SKU
             <input
@@ -1377,13 +1499,13 @@ export default function Home() {
             Ajouter la référence
           </button>
         </form>
+          </CollapsibleSection>
 
+          <CollapsibleSection id="movements" title="Mouvements de stock" defaultOpen={false}>
         <form
           onSubmit={addStockMovement}
           className="flex flex-col gap-3 border border-border rounded-lg p-4 bg-background"
         >
-          <h2 className="font-medium">Mouvement de stock</h2>
-
           <label className="flex flex-col gap-1 text-sm">
             Référence
             <select
@@ -1449,11 +1571,330 @@ export default function Home() {
             Enregistrer le mouvement
           </button>
         </form>
-      </section>
+          </CollapsibleSection>
 
-      <section className="flex flex-col gap-4">
-        <h2 className="font-medium">Commandes fournisseurs</h2>
+          <CollapsibleSection id="bom" title="Nomenclatures" defaultOpen={false}>
+        <form
+          onSubmit={addBomLine}
+          className="flex flex-col gap-3 border border-border rounded-lg p-4 max-w-md bg-background"
+        >
+          <label className="flex flex-col gap-1 text-sm">
+            Référence produite
+            <select
+              required
+              value={bomProducedItemId}
+              onChange={(event) => setBomProducedItemId(event.target.value)}
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
+            >
+              <option value="" disabled>
+                Sélectionner une référence
+              </option>
+              {items.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.sku} — {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
 
+          <label className="flex flex-col gap-1 text-sm">
+            Intrant
+            <select
+              required
+              value={bomInputItemId}
+              onChange={(event) => setBomInputItemId(event.target.value)}
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
+            >
+              <option value="" disabled>
+                Sélectionner un intrant
+              </option>
+              {componentItems.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.sku} — {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm">
+            Quantité par référence produite
+            <input
+              type="number"
+              required
+              min="0.01"
+              step="0.01"
+              value={bomQuantityPer}
+              onChange={(event) => setBomQuantityPer(event.target.value)}
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
+            />
+          </label>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="rounded-md bg-accent text-white px-3 py-2 font-medium transition-colors hover:bg-accent-dark disabled:opacity-50 disabled:hover:bg-accent"
+          >
+            Ajouter la ligne de nomenclature
+          </button>
+        </form>
+
+        <div className="overflow-x-auto border border-border rounded-lg">
+          <table className="w-full text-sm">
+            <thead className="bg-surface-mint">
+              <tr className="text-left">
+                <th className="px-3 py-2">Référence produite</th>
+                <th className="px-3 py-2">Intrant</th>
+                <th className="px-3 py-2 text-right">Quantité par référence produite</th>
+                <th className="px-3 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {bomLines.map((line) => {
+                const product = items.find((item) => item.id === line.product_item_id);
+                const component = items.find(
+                  (item) => item.id === line.component_item_id,
+                );
+
+                return (
+                  <tr key={line.id} className="border-t border-border">
+                    <td className="px-3 py-2">
+                      {product ? `${product.sku} — ${product.name}` : line.product_item_id}
+                    </td>
+                    <td className="px-3 py-2">
+                      {component
+                        ? `${component.sku} — ${component.name}`
+                        : line.component_item_id}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        defaultValue={line.quantity_per}
+                        onBlur={(event) =>
+                          void updateBomLineQuantity(line.id, Number(event.target.value))
+                        }
+                        className="border border-border rounded-md px-2 py-1 w-20 text-right bg-background text-foreground focus:outline-none focus:border-accent"
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <button
+                        type="button"
+                        onClick={() => void deleteBomLine(line.id)}
+                        disabled={loading}
+                        className="text-xs text-red-600 hover:text-red-700 disabled:opacity-50"
+                      >
+                        Supprimer
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+              {bomLines.length === 0 && (
+                <tr>
+                  <td className="px-3 py-4 text-center text-muted" colSpan={4}>
+                    Aucune nomenclature pour le moment.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+          </CollapsibleSection>
+
+          <CollapsibleSection id="customer-orders" title="Commandes clients" defaultOpen={false}>
+        <form
+          onSubmit={addCustomerOrder}
+          className="flex flex-col gap-3 border border-border rounded-lg p-4 max-w-md bg-background"
+        >
+          <label className="flex flex-col gap-1 text-sm">
+            Client
+            <input
+              type="text"
+              required
+              value={customerName}
+              onChange={(event) => setCustomerName(event.target.value)}
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm">
+            Numéro de commande (optionnel)
+            <input
+              type="text"
+              value={customerOrderNumber}
+              onChange={(event) => setCustomerOrderNumber(event.target.value)}
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
+            />
+          </label>
+
+          <div className="flex flex-col gap-2">
+            <p className="text-sm">Lignes</p>
+            {customerOrderLines.map((line, index) => (
+              <div key={index} className="flex gap-2">
+                <select
+                  required
+                  value={line.itemId}
+                  onChange={(event) =>
+                    updateCustomerOrderLine(index, { itemId: event.target.value })
+                  }
+                  className="border border-border rounded-md px-3 py-1.5 flex-1 bg-background text-foreground focus:outline-none focus:border-accent"
+                >
+                  <option value="" disabled>
+                    Produit fini
+                  </option>
+                  {productItems.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.sku} — {item.name}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  required
+                  min="0.01"
+                  step="0.01"
+                  placeholder="Qté"
+                  value={line.quantity}
+                  onChange={(event) =>
+                    updateCustomerOrderLine(index, { quantity: event.target.value })
+                  }
+                  className="border border-border rounded-md px-3 py-1.5 w-24 bg-background text-foreground focus:outline-none focus:border-accent"
+                />
+                {customerOrderLines.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeCustomerOrderLine(index)}
+                    className="text-sm text-red-600 hover:text-red-700 px-2"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addCustomerOrderLine}
+              className="text-sm text-left underline w-fit"
+            >
+              + Ajouter une ligne
+            </button>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="rounded-md bg-accent text-white px-3 py-2 font-medium transition-colors hover:bg-accent-dark disabled:opacity-50 disabled:hover:bg-accent"
+          >
+            Créer la commande confirmée
+          </button>
+        </form>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="font-medium text-sm">Commandes confirmées ouvertes</h3>
+
+          {customerOrders.length === 0 && (
+            <p className="text-sm text-muted">
+              Aucune commande client confirmée.
+            </p>
+          )}
+
+          {customerOrders.map((order) => (
+            <div key={order.id} className="border border-border rounded-lg p-4 flex flex-col gap-3 bg-background">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="text"
+                    defaultValue={order.customer_name}
+                    onBlur={(event) => {
+                      const value = event.target.value.trim();
+                      if (value) void updateCustomerOrder(order.id, { customer_name: value });
+                    }}
+                    className="border border-border rounded-md px-2 py-1 text-xs font-medium bg-background text-foreground focus:outline-none focus:border-accent"
+                  />
+                  <input
+                    type="text"
+                    defaultValue={order.order_number ?? ""}
+                    placeholder="Numéro"
+                    onBlur={(event) =>
+                      void updateCustomerOrder(order.id, {
+                        order_number: event.target.value.trim() || null,
+                      })
+                    }
+                    className="border border-border rounded-md px-2 py-1 text-xs w-28 bg-background text-foreground focus:outline-none focus:border-accent"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void updateCustomerOrder(order.id, { status: "fulfilled" })}
+                    disabled={loading}
+                    className="rounded-md border border-border px-2 py-1 text-xs transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
+                  >
+                    Marquée livrée
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void updateCustomerOrder(order.id, { status: "cancelled" })}
+                    disabled={loading}
+                    className="rounded-md border border-red-300 px-2 py-1 text-xs text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50"
+                  >
+                    Annuler
+                  </button>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-muted">
+                      <th className="px-2 py-1">Produit fini</th>
+                      <th className="px-2 py-1 text-right">Quantité</th>
+                      <th className="px-2 py-1"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {order.customer_order_lines.map((line) => (
+                      <tr key={line.id} className="border-t border-border">
+                        <td className="px-2 py-1">
+                          {line.items.sku} — {line.items.name}
+                        </td>
+                        <td className="px-2 py-1 text-right">
+                          <input
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            defaultValue={line.quantity}
+                            onBlur={(event) =>
+                              void updateCustomerOrderLineQuantity(
+                                line.id,
+                                Number(event.target.value),
+                              )
+                            }
+                            className="border border-border rounded-md px-2 py-1 w-20 text-right bg-background text-foreground focus:outline-none focus:border-accent"
+                          />
+                        </td>
+                        <td className="px-2 py-1">
+                          <button
+                            type="button"
+                            onClick={() => void deleteCustomerOrderLine(line.id)}
+                            disabled={loading}
+                            className="text-xs text-red-600 hover:text-red-700 disabled:opacity-50"
+                          >
+                            Supprimer
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+        </div>
+          </CollapsibleSection>
+
+          <CollapsibleSection id="supplier-orders" title="Commandes fournisseurs" defaultOpen={false}>
         <div className="grid gap-6 md:grid-cols-2">
           <form
             onSubmit={addSupplier}
@@ -1758,336 +2199,9 @@ export default function Home() {
             </div>
           ))}
         </div>
-      </section>
+          </CollapsibleSection>
 
-      <section className="flex flex-col gap-4">
-        <h2 className="font-medium">Nomenclatures (BOM)</h2>
-
-        <form
-          onSubmit={addBomLine}
-          className="flex flex-col gap-3 border border-border rounded-lg p-4 max-w-md bg-background"
-        >
-          <label className="flex flex-col gap-1 text-sm">
-            Référence produite
-            <select
-              required
-              value={bomProducedItemId}
-              onChange={(event) => setBomProducedItemId(event.target.value)}
-              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
-            >
-              <option value="" disabled>
-                Sélectionner une référence
-              </option>
-              {items.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.sku} — {item.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1 text-sm">
-            Intrant
-            <select
-              required
-              value={bomInputItemId}
-              onChange={(event) => setBomInputItemId(event.target.value)}
-              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
-            >
-              <option value="" disabled>
-                Sélectionner un intrant
-              </option>
-              {componentItems.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.sku} — {item.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1 text-sm">
-            Quantité par référence produite
-            <input
-              type="number"
-              required
-              min="0.01"
-              step="0.01"
-              value={bomQuantityPer}
-              onChange={(event) => setBomQuantityPer(event.target.value)}
-              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
-            />
-          </label>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="rounded-md bg-accent text-white px-3 py-2 font-medium transition-colors hover:bg-accent-dark disabled:opacity-50 disabled:hover:bg-accent"
-          >
-            Ajouter la ligne de nomenclature
-          </button>
-        </form>
-
-        <div className="overflow-x-auto border border-border rounded-lg">
-          <table className="w-full text-sm">
-            <thead className="bg-surface-mint">
-              <tr className="text-left">
-                <th className="px-3 py-2">Référence produite</th>
-                <th className="px-3 py-2">Intrant</th>
-                <th className="px-3 py-2 text-right">Quantité par référence produite</th>
-                <th className="px-3 py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {bomLines.map((line) => {
-                const product = items.find((item) => item.id === line.product_item_id);
-                const component = items.find(
-                  (item) => item.id === line.component_item_id,
-                );
-
-                return (
-                  <tr key={line.id} className="border-t border-border">
-                    <td className="px-3 py-2">
-                      {product ? `${product.sku} — ${product.name}` : line.product_item_id}
-                    </td>
-                    <td className="px-3 py-2">
-                      {component
-                        ? `${component.sku} — ${component.name}`
-                        : line.component_item_id}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      <input
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        defaultValue={line.quantity_per}
-                        onBlur={(event) =>
-                          void updateBomLineQuantity(line.id, Number(event.target.value))
-                        }
-                        className="border border-border rounded-md px-2 py-1 w-20 text-right bg-background text-foreground focus:outline-none focus:border-accent"
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <button
-                        type="button"
-                        onClick={() => void deleteBomLine(line.id)}
-                        disabled={loading}
-                        className="text-xs text-red-600 hover:text-red-700 disabled:opacity-50"
-                      >
-                        Supprimer
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-              {bomLines.length === 0 && (
-                <tr>
-                  <td className="px-3 py-4 text-center text-muted" colSpan={4}>
-                    Aucune nomenclature pour le moment.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="flex flex-col gap-4">
-        <h2 className="font-medium">Commandes clients</h2>
-
-        <form
-          onSubmit={addCustomerOrder}
-          className="flex flex-col gap-3 border border-border rounded-lg p-4 max-w-md bg-background"
-        >
-          <label className="flex flex-col gap-1 text-sm">
-            Client
-            <input
-              type="text"
-              required
-              value={customerName}
-              onChange={(event) => setCustomerName(event.target.value)}
-              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
-            />
-          </label>
-
-          <label className="flex flex-col gap-1 text-sm">
-            Numéro de commande (optionnel)
-            <input
-              type="text"
-              value={customerOrderNumber}
-              onChange={(event) => setCustomerOrderNumber(event.target.value)}
-              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
-            />
-          </label>
-
-          <div className="flex flex-col gap-2">
-            <p className="text-sm">Lignes</p>
-            {customerOrderLines.map((line, index) => (
-              <div key={index} className="flex gap-2">
-                <select
-                  required
-                  value={line.itemId}
-                  onChange={(event) =>
-                    updateCustomerOrderLine(index, { itemId: event.target.value })
-                  }
-                  className="border border-border rounded-md px-3 py-1.5 flex-1 bg-background text-foreground focus:outline-none focus:border-accent"
-                >
-                  <option value="" disabled>
-                    Produit fini
-                  </option>
-                  {productItems.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.sku} — {item.name}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="number"
-                  required
-                  min="0.01"
-                  step="0.01"
-                  placeholder="Qté"
-                  value={line.quantity}
-                  onChange={(event) =>
-                    updateCustomerOrderLine(index, { quantity: event.target.value })
-                  }
-                  className="border border-border rounded-md px-3 py-1.5 w-24 bg-background text-foreground focus:outline-none focus:border-accent"
-                />
-                {customerOrderLines.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => removeCustomerOrderLine(index)}
-                    className="text-sm text-red-600 hover:text-red-700 px-2"
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
-            ))}
-            <button
-              type="button"
-              onClick={addCustomerOrderLine}
-              className="text-sm text-left underline w-fit"
-            >
-              + Ajouter une ligne
-            </button>
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="rounded-md bg-accent text-white px-3 py-2 font-medium transition-colors hover:bg-accent-dark disabled:opacity-50 disabled:hover:bg-accent"
-          >
-            Créer la commande confirmée
-          </button>
-        </form>
-
-        <div className="flex flex-col gap-3">
-          <h3 className="font-medium text-sm">Commandes confirmées ouvertes</h3>
-
-          {customerOrders.length === 0 && (
-            <p className="text-sm text-muted">
-              Aucune commande client confirmée.
-            </p>
-          )}
-
-          {customerOrders.map((order) => (
-            <div key={order.id} className="border border-border rounded-lg p-4 flex flex-col gap-3 bg-background">
-              <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                <div className="flex flex-wrap items-center gap-2">
-                  <input
-                    type="text"
-                    defaultValue={order.customer_name}
-                    onBlur={(event) => {
-                      const value = event.target.value.trim();
-                      if (value) void updateCustomerOrder(order.id, { customer_name: value });
-                    }}
-                    className="border border-border rounded-md px-2 py-1 text-xs font-medium bg-background text-foreground focus:outline-none focus:border-accent"
-                  />
-                  <input
-                    type="text"
-                    defaultValue={order.order_number ?? ""}
-                    placeholder="Numéro"
-                    onBlur={(event) =>
-                      void updateCustomerOrder(order.id, {
-                        order_number: event.target.value.trim() || null,
-                      })
-                    }
-                    className="border border-border rounded-md px-2 py-1 text-xs w-28 bg-background text-foreground focus:outline-none focus:border-accent"
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void updateCustomerOrder(order.id, { status: "fulfilled" })}
-                    disabled={loading}
-                    className="rounded-md border border-border px-2 py-1 text-xs transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
-                  >
-                    Marquée livrée
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void updateCustomerOrder(order.id, { status: "cancelled" })}
-                    disabled={loading}
-                    className="rounded-md border border-red-300 px-2 py-1 text-xs text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50"
-                  >
-                    Annuler
-                  </button>
-                </div>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-muted">
-                      <th className="px-2 py-1">Produit fini</th>
-                      <th className="px-2 py-1 text-right">Quantité</th>
-                      <th className="px-2 py-1"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {order.customer_order_lines.map((line) => (
-                      <tr key={line.id} className="border-t border-border">
-                        <td className="px-2 py-1">
-                          {line.items.sku} — {line.items.name}
-                        </td>
-                        <td className="px-2 py-1 text-right">
-                          <input
-                            type="number"
-                            min="0.01"
-                            step="0.01"
-                            defaultValue={line.quantity}
-                            onBlur={(event) =>
-                              void updateCustomerOrderLineQuantity(
-                                line.id,
-                                Number(event.target.value),
-                              )
-                            }
-                            className="border border-border rounded-md px-2 py-1 w-20 text-right bg-background text-foreground focus:outline-none focus:border-accent"
-                          />
-                        </td>
-                        <td className="px-2 py-1">
-                          <button
-                            type="button"
-                            onClick={() => void deleteCustomerOrderLine(line.id)}
-                            disabled={loading}
-                            className="text-xs text-red-600 hover:text-red-700 disabled:opacity-50"
-                          >
-                            Supprimer
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="flex flex-col gap-4">
-        <h2 className="font-medium">Ordres de production</h2>
-
+          <CollapsibleSection id="production-orders" title="Ordres de production" defaultOpen={false}>
         <form
           onSubmit={addProductionOrder}
           className="flex flex-col gap-3 border border-border rounded-lg p-4 max-w-md bg-background"
@@ -2368,69 +2482,9 @@ export default function Home() {
             );
           })}
         </div>
-      </section>
-
-      <section className="flex flex-col gap-3">
-        <h2 className="font-medium">
-          Stock {alertCount > 0 && `— ${alertCount} alerte(s)`}
-        </h2>
-
-        <div className="overflow-x-auto border border-border rounded-lg">
-          <table className="w-full text-sm">
-            <thead className="bg-surface-mint">
-              <tr className="text-left">
-                <th className="px-3 py-2">SKU</th>
-                <th className="px-3 py-2">Nom</th>
-                <th className="px-3 py-2">Type</th>
-                <th className="px-3 py-2 text-right">Stock physique</th>
-                <th className="px-3 py-2 text-right">Commandé</th>
-                <th className="px-3 py-2 text-right">Réservé</th>
-                <th className="px-3 py-2 text-right">Disponible</th>
-                <th className="px-3 py-2">Alerte</th>
-              </tr>
-            </thead>
-            <tbody>
-              {dashboard.map((row) => (
-                <tr key={row.item_id} className="border-t border-border">
-                  <td className="px-3 py-2">{row.sku}</td>
-                  <td className="px-3 py-2">{row.name}</td>
-                  <td className="px-3 py-2">
-                    {row.item_type === "component" ? "Intrant" : "Produit fini"}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    {quantity(row.quantity_physical)}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    {quantity(row.quantity_ordered)}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    {quantity(row.quantity_reserved)}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    {quantity(row.quantity_available)}
-                  </td>
-                  <td className="px-3 py-2">
-                    {row.alert_status === "ok" ? (
-                      "OK"
-                    ) : (
-                      <span className="text-red-600">
-                        {alertLabel(row.alert_status)}
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {dashboard.length === 0 && (
-                <tr>
-                  <td className="px-3 py-4 text-center text-muted" colSpan={8}>
-                    Aucune référence pour le moment.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+          </CollapsibleSection>
         </div>
-      </section>
+      </div>
     </main>
   );
 }
