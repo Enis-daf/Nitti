@@ -94,7 +94,16 @@ type ProductionOrder = {
   quantity_planned: number;
   quantity_completed: number;
   status: ProductionOrderStatus;
+  planned_at: string | null;
   note: string | null;
+};
+
+type ShortageLine = {
+  itemId: string;
+  label: string;
+  required: number;
+  available: number;
+  missing: number;
 };
 
 type DashboardRow = {
@@ -186,7 +195,11 @@ export default function Home() {
   const [productionOrders, setProductionOrders] = useState<ProductionOrder[]>([]);
   const [productionItemId, setProductionItemId] = useState("");
   const [productionQuantity, setProductionQuantity] = useState("");
+  const [productionPlannedAt, setProductionPlannedAt] = useState("");
   const [productionNote, setProductionNote] = useState("");
+
+  const [shortageByOrder, setShortageByOrder] = useState<Record<string, ShortageLine[]>>({});
+  const [overrideReasonByOrder, setOverrideReasonByOrder] = useState<Record<string, string>>({});
 
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
@@ -284,7 +297,9 @@ export default function Home() {
   const loadProductionData = useCallback(async (organizationId: string) => {
     const { data, error } = await supabase
       .from("production_orders")
-      .select("id, produced_item_id, quantity_planned, quantity_completed, status, note")
+      .select(
+        "id, produced_item_id, quantity_planned, quantity_completed, status, planned_at, note",
+      )
       .eq("organization_id", organizationId)
       .eq("status", "planned")
       .order("created_at", { ascending: false });
@@ -772,6 +787,7 @@ export default function Home() {
       organization_id: organization.id,
       produced_item_id: productionItemId,
       quantity_planned: plannedQuantity,
+      planned_at: productionPlannedAt || null,
       note: productionNote.trim() || null,
     });
 
@@ -780,6 +796,7 @@ export default function Home() {
     } else {
       setProductionItemId("");
       setProductionQuantity("");
+      setProductionPlannedAt("");
       setProductionNote("");
       await loadProductionData(organization.id);
     }
@@ -787,7 +804,55 @@ export default function Home() {
     setLoading(false);
   }
 
-  async function completeProductionOrder(orderId: string) {
+  function computeShortage(order: ProductionOrder): ShortageLine[] {
+    const requiredInputs = bomLines.filter(
+      (line) => line.product_item_id === order.produced_item_id,
+    );
+    const shortages: ShortageLine[] = [];
+
+    for (const line of requiredInputs) {
+      const required = line.quantity_per * order.quantity_planned;
+      const dashboardRow = dashboard.find((row) => row.item_id === line.component_item_id);
+      const available = Number(dashboardRow?.quantity_available ?? 0);
+
+      if (required > available) {
+        const inputItem = items.find((item) => item.id === line.component_item_id);
+        shortages.push({
+          itemId: line.component_item_id,
+          label: inputItem ? `${inputItem.sku} — ${inputItem.name}` : line.component_item_id,
+          required,
+          available,
+          missing: required - available,
+        });
+      }
+    }
+
+    return shortages;
+  }
+
+  function handleCompleteClick(order: ProductionOrder) {
+    const shortages = computeShortage(order);
+
+    if (shortages.length === 0) {
+      void completeProductionOrder(order.id);
+      return;
+    }
+
+    setShortageByOrder((current) => ({ ...current, [order.id]: shortages }));
+  }
+
+  function forceCompleteProductionOrder(orderId: string) {
+    const reason = overrideReasonByOrder[orderId]?.trim();
+
+    if (!reason) {
+      setMessage("Indique une justification pour forcer la complétion.");
+      return;
+    }
+
+    void completeProductionOrder(orderId, reason);
+  }
+
+  async function completeProductionOrder(orderId: string, overrideReason?: string) {
     if (!organization) return;
 
     setLoading(true);
@@ -795,11 +860,22 @@ export default function Home() {
 
     const { error } = await supabase.rpc("complete_production_order", {
       p_order_id: orderId,
+      p_override_reason: overrideReason ?? null,
     });
 
     if (error) {
       setMessage(error.message);
     } else {
+      setShortageByOrder((current) => {
+        const next = { ...current };
+        delete next[orderId];
+        return next;
+      });
+      setOverrideReasonByOrder((current) => {
+        const next = { ...current };
+        delete next[orderId];
+        return next;
+      });
       await Promise.all([
         loadProductionData(organization.id),
         loadStockData(organization.id),
@@ -1620,6 +1696,16 @@ export default function Home() {
           </label>
 
           <label className="flex flex-col gap-1 text-sm">
+            Date prévue
+            <input
+              type="date"
+              value={productionPlannedAt}
+              onChange={(event) => setProductionPlannedAt(event.target.value)}
+              className="border rounded px-3 py-1.5"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm">
             Note (optionnel)
             <input
               type="text"
@@ -1665,11 +1751,12 @@ export default function Home() {
                         : order.produced_item_id}
                     </span>
                     {` — quantité ${quantity(order.quantity_planned)}`}
+                    {order.planned_at && ` — prévue le ${order.planned_at}`}
                     {order.note && ` — ${order.note}`}
                   </div>
                   <button
                     type="button"
-                    onClick={() => void completeProductionOrder(order.id)}
+                    onClick={() => handleCompleteClick(order)}
                     disabled={loading}
                     className="rounded border px-2 py-1 text-xs disabled:opacity-50"
                   >
@@ -1710,6 +1797,62 @@ export default function Home() {
                   <p className="text-xs text-neutral-500">
                     Aucune nomenclature définie pour cette référence.
                   </p>
+                )}
+
+                {shortageByOrder[order.id] && (
+                  <div className="border border-red-300 rounded p-3 flex flex-col gap-2 bg-red-50 dark:bg-red-950">
+                    <p className="text-sm font-medium text-red-700">
+                      Stock intrant insuffisant
+                    </p>
+
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-neutral-500">
+                          <th className="py-1">Intrant</th>
+                          <th className="py-1 text-right">Besoin</th>
+                          <th className="py-1 text-right">Disponible</th>
+                          <th className="py-1 text-right">Manquant</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {shortageByOrder[order.id].map((line) => (
+                          <tr key={line.itemId} className="border-t">
+                            <td className="py-1">{line.label}</td>
+                            <td className="py-1 text-right">{quantity(line.required)}</td>
+                            <td className="py-1 text-right">{quantity(line.available)}</td>
+                            <td className="py-1 text-right text-red-600">
+                              {quantity(line.missing)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+
+                    <label className="flex flex-col gap-1 text-sm">
+                      Justification (obligatoire pour forcer)
+                      <input
+                        type="text"
+                        required
+                        value={overrideReasonByOrder[order.id] ?? ""}
+                        onChange={(event) =>
+                          setOverrideReasonByOrder((current) => ({
+                            ...current,
+                            [order.id]: event.target.value,
+                          }))
+                        }
+                        className="border rounded px-3 py-1.5"
+                      />
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={() => forceCompleteProductionOrder(order.id)}
+                      disabled={loading}
+                      className="rounded border border-red-600 text-red-600 px-3 py-2 disabled:opacity-50 w-fit"
+                    >
+                      Terminer quand même
+                    </button>
+                  </div>
                 )}
               </div>
             );
