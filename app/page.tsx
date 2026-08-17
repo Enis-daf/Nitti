@@ -20,7 +20,12 @@ type Supplier = {
   name: string;
 };
 
-type SupplierOrderStatus = "open" | "partially_received" | "received";
+type SupplierOrderStatus =
+  | "draft"
+  | "ordered"
+  | "partially_received"
+  | "received"
+  | "cancelled";
 
 type SupplierOrderLine = {
   id: string;
@@ -33,11 +38,19 @@ type SupplierOrderLine = {
 type SupplierOrder = {
   id: string;
   order_number: string | null;
-  expected_date: string | null;
+  expected_at: string | null;
   status: SupplierOrderStatus;
   supplier_id: string | null;
   supplier_order_lines: SupplierOrderLine[];
 };
+
+function supplierOrderStatusLabel(status: SupplierOrderStatus) {
+  if (status === "draft") return "Brouillon";
+  if (status === "ordered") return "Commandée";
+  if (status === "partially_received") return "Partiellement reçue";
+  if (status === "received") return "Reçue";
+  return "Annulée";
+}
 
 type DraftOrderLine = {
   itemId: string;
@@ -109,7 +122,7 @@ export default function Home() {
 
   const [orderSupplierId, setOrderSupplierId] = useState("");
   const [orderNumber, setOrderNumber] = useState("");
-  const [orderExpectedDate, setOrderExpectedDate] = useState("");
+  const [orderExpectedAt, setOrderExpectedAt] = useState("");
   const [orderLines, setOrderLines] = useState<DraftOrderLine[]>([
     { itemId: "", quantity: "" },
   ]);
@@ -161,10 +174,10 @@ export default function Home() {
       supabase
         .from("supplier_orders")
         .select(
-          "id, order_number, expected_date, status, supplier_id, supplier_order_lines(id, item_id, quantity_ordered, quantity_received, items(sku, name))",
+          "id, order_number, expected_at, status, supplier_id, supplier_order_lines(id, item_id, quantity_ordered, quantity_received, items(sku, name))",
         )
         .eq("organization_id", organizationId)
-        .neq("status", "received")
+        .in("status", ["ordered", "partially_received"])
         .order("created_at", { ascending: false }),
     ]);
 
@@ -425,7 +438,7 @@ export default function Home() {
         organization_id: organization.id,
         supplier_id: orderSupplierId || null,
         order_number: orderNumber.trim() || null,
-        expected_date: orderExpectedDate || null,
+        expected_at: orderExpectedAt || null,
       })
       .select("id")
       .single();
@@ -450,7 +463,7 @@ export default function Home() {
     } else {
       setOrderSupplierId("");
       setOrderNumber("");
-      setOrderExpectedDate("");
+      setOrderExpectedAt("");
       setOrderLines([{ itemId: "", quantity: "" }]);
       await Promise.all([
         loadSupplierData(organization.id),
@@ -837,8 +850,8 @@ export default function Home() {
               Date attendue
               <input
                 type="date"
-                value={orderExpectedDate}
-                onChange={(event) => setOrderExpectedDate(event.target.value)}
+                value={orderExpectedAt}
+                onChange={(event) => setOrderExpectedAt(event.target.value)}
                 className="border rounded px-3 py-1.5"
               />
             </label>
@@ -925,14 +938,14 @@ export default function Home() {
                   {" — "}
                   {suppliers.find((supplier) => supplier.id === order.supplier_id)
                     ?.name ?? "Fournisseur non renseigné"}
-                  {order.expected_date && ` — attendu le ${order.expected_date}`}
+                  {order.expected_at && ` — attendu le ${order.expected_at}`}
                 </div>
                 <span
                   className={
                     order.status === "partially_received" ? "text-orange-600" : ""
                   }
                 >
-                  {order.status === "open" ? "Ouverte" : "Partiellement reçue"}
+                  {supplierOrderStatusLabel(order.status)}
                 </span>
               </div>
 
