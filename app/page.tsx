@@ -86,6 +86,17 @@ type DraftCustomerOrderLine = {
   quantity: string;
 };
 
+type ProductionOrderStatus = "draft" | "planned" | "completed" | "cancelled";
+
+type ProductionOrder = {
+  id: string;
+  produced_item_id: string;
+  quantity_planned: number;
+  quantity_completed: number;
+  status: ProductionOrderStatus;
+  note: string | null;
+};
+
 type DashboardRow = {
   item_id: string;
   sku: string;
@@ -171,6 +182,11 @@ export default function Home() {
   const [customerOrderLines, setCustomerOrderLines] = useState<DraftCustomerOrderLine[]>([
     { itemId: "", quantity: "" },
   ]);
+
+  const [productionOrders, setProductionOrders] = useState<ProductionOrder[]>([]);
+  const [productionItemId, setProductionItemId] = useState("");
+  const [productionQuantity, setProductionQuantity] = useState("");
+  const [productionNote, setProductionNote] = useState("");
 
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
@@ -265,6 +281,21 @@ export default function Home() {
     }
   }, []);
 
+  const loadProductionData = useCallback(async (organizationId: string) => {
+    const { data, error } = await supabase
+      .from("production_orders")
+      .select("id, produced_item_id, quantity_planned, quantity_completed, status, note")
+      .eq("organization_id", organizationId)
+      .eq("status", "planned")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      setProductionOrders((data ?? []) as ProductionOrder[]);
+    }
+  }, []);
+
   const loadOrganization = useCallback(async () => {
     setLoading(true);
 
@@ -301,11 +332,12 @@ export default function Home() {
         loadStockData(org.id),
         loadSupplierData(org.id),
         loadCustomerData(org.id),
+        loadProductionData(org.id),
       ]);
     }
 
     setLoading(false);
-  }, [loadStockData, loadSupplierData, loadCustomerData]);
+  }, [loadStockData, loadSupplierData, loadCustomerData, loadProductionData]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -337,6 +369,7 @@ export default function Home() {
         setSupplierOrders([]);
         setBomLines([]);
         setCustomerOrders([]);
+        setProductionOrders([]);
         setLoading(false);
       }
     });
@@ -714,6 +747,61 @@ export default function Home() {
     } else {
       await Promise.all([
         loadCustomerData(organization.id),
+        loadStockData(organization.id),
+      ]);
+    }
+
+    setLoading(false);
+  }
+
+  async function addProductionOrder(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!organization) return;
+
+    const plannedQuantity = Number(productionQuantity);
+    if (!productionItemId || !plannedQuantity || plannedQuantity <= 0) {
+      setMessage("Sélectionne une référence et une quantité valide.");
+      return;
+    }
+
+    setLoading(true);
+    setMessage("");
+
+    const { error } = await supabase.from("production_orders").insert({
+      organization_id: organization.id,
+      produced_item_id: productionItemId,
+      quantity_planned: plannedQuantity,
+      note: productionNote.trim() || null,
+    });
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      setProductionItemId("");
+      setProductionQuantity("");
+      setProductionNote("");
+      await loadProductionData(organization.id);
+    }
+
+    setLoading(false);
+  }
+
+  async function completeProductionOrder(orderId: string) {
+    if (!organization) return;
+
+    setLoading(true);
+    setMessage("");
+
+    const { error } = await supabase.rpc("complete_production_order", {
+      p_order_id: orderId,
+    });
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      await Promise.all([
+        loadProductionData(organization.id),
         loadStockData(organization.id),
       ]);
     }
@@ -1489,6 +1577,143 @@ export default function Home() {
               </table>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <h2 className="font-medium">Ordres de production</h2>
+
+        <form
+          onSubmit={addProductionOrder}
+          className="flex flex-col gap-3 border rounded-lg p-4 max-w-md"
+        >
+          <label className="flex flex-col gap-1 text-sm">
+            Référence à produire
+            <select
+              required
+              value={productionItemId}
+              onChange={(event) => setProductionItemId(event.target.value)}
+              className="border rounded px-3 py-1.5"
+            >
+              <option value="" disabled>
+                Sélectionner une référence
+              </option>
+              {items.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.sku} — {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm">
+            Quantité à produire
+            <input
+              type="number"
+              required
+              min="0.01"
+              step="0.01"
+              value={productionQuantity}
+              onChange={(event) => setProductionQuantity(event.target.value)}
+              className="border rounded px-3 py-1.5"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm">
+            Note (optionnel)
+            <input
+              type="text"
+              value={productionNote}
+              onChange={(event) => setProductionNote(event.target.value)}
+              className="border rounded px-3 py-1.5"
+            />
+          </label>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="rounded bg-black text-white px-3 py-2 disabled:opacity-50"
+          >
+            Créer l&apos;ordre de production
+          </button>
+        </form>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="font-medium text-sm">Ordres planifiés</h3>
+
+          {productionOrders.length === 0 && (
+            <p className="text-sm text-neutral-500">
+              Aucun ordre de production en cours.
+            </p>
+          )}
+
+          {productionOrders.map((order) => {
+            const producedItem = items.find(
+              (item) => item.id === order.produced_item_id,
+            );
+            const requiredInputs = bomLines.filter(
+              (line) => line.product_item_id === order.produced_item_id,
+            );
+
+            return (
+              <div key={order.id} className="border rounded-lg p-4 flex flex-col gap-3">
+                <div className="flex items-center justify-between text-sm">
+                  <div>
+                    <span className="font-medium">
+                      {producedItem
+                        ? `${producedItem.sku} — ${producedItem.name}`
+                        : order.produced_item_id}
+                    </span>
+                    {` — quantité ${quantity(order.quantity_planned)}`}
+                    {order.note && ` — ${order.note}`}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void completeProductionOrder(order.id)}
+                    disabled={loading}
+                    className="rounded border px-2 py-1 text-xs disabled:opacity-50"
+                  >
+                    Terminer la production
+                  </button>
+                </div>
+
+                {requiredInputs.length > 0 ? (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-neutral-500">
+                        <th className="py-1">Intrant nécessaire</th>
+                        <th className="py-1 text-right">Quantité requise</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {requiredInputs.map((line) => {
+                        const inputItem = items.find(
+                          (item) => item.id === line.component_item_id,
+                        );
+
+                        return (
+                          <tr key={line.id} className="border-t">
+                            <td className="py-1">
+                              {inputItem
+                                ? `${inputItem.sku} — ${inputItem.name}`
+                                : line.component_item_id}
+                            </td>
+                            <td className="py-1 text-right">
+                              {quantity(line.quantity_per * order.quantity_planned)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p className="text-xs text-neutral-500">
+                    Aucune nomenclature définie pour cette référence.
+                  </p>
+                )}
+              </div>
+            );
+          })}
         </div>
       </section>
 
