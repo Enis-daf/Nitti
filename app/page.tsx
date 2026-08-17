@@ -695,6 +695,32 @@ export default function Home() {
     setLoading(false);
   }
 
+  async function updateCustomerOrderStatus(
+    orderId: string,
+    status: "fulfilled" | "cancelled",
+  ) {
+    if (!organization) return;
+
+    setLoading(true);
+    setMessage("");
+
+    const { error } = await supabase
+      .from("customer_orders")
+      .update({ status })
+      .eq("id", orderId);
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      await Promise.all([
+        loadCustomerData(organization.id),
+        loadStockData(organization.id),
+      ]);
+    }
+
+    setLoading(false);
+  }
+
   async function signOut() {
     await supabase.auth.signOut();
   }
@@ -1418,9 +1444,29 @@ export default function Home() {
 
           {customerOrders.map((order) => (
             <div key={order.id} className="border rounded-lg p-4 flex flex-col gap-3">
-              <div className="text-sm">
-                <span className="font-medium">{order.customer_name}</span>
-                {order.order_number && ` — ${order.order_number}`}
+              <div className="flex items-center justify-between text-sm">
+                <div>
+                  <span className="font-medium">{order.customer_name}</span>
+                  {order.order_number && ` — ${order.order_number}`}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void updateCustomerOrderStatus(order.id, "fulfilled")}
+                    disabled={loading}
+                    className="rounded border px-2 py-1 text-xs disabled:opacity-50"
+                  >
+                    Marquer reçue
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void updateCustomerOrderStatus(order.id, "cancelled")}
+                    disabled={loading}
+                    className="rounded border px-2 py-1 text-xs text-red-600 disabled:opacity-50"
+                  >
+                    Annuler
+                  </button>
+                </div>
               </div>
 
               <table className="w-full text-sm">
