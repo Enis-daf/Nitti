@@ -262,7 +262,7 @@ function StockTable({
   return (
     <div className="border border-border rounded-lg overflow-hidden">
       <table className="w-full text-sm table-fixed">
-        <thead className="bg-surface-header border-b-2 border-border">
+        <thead className="bg-background border-b border-[#030a16]">
           <tr className="text-left">
             <th className="px-2 py-2 font-semibold overflow-hidden w-[15%]">SKU</th>
             <th className="px-2 py-2 font-semibold overflow-hidden w-[23%]">Nom</th>
@@ -384,17 +384,18 @@ function CollapsibleSection({
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className={`w-full flex items-center justify-between px-4 py-3.5 text-left transition-colors bg-surface-mint hover:bg-[#c9f7e8] ${
-          open ? "border-b border-border" : ""
-        }`}
+        className="w-full text-left transition-colors bg-background hover:bg-black/[0.02]"
       >
-        <h2 className="font-semibold text-foreground">{title}</h2>
-        <span
-          className={`text-foreground text-base transition-transform ${open ? "rotate-180" : ""}`}
-          aria-hidden="true"
-        >
-          ▾
-        </span>
+        <div className={`flex items-center justify-between px-4 pt-3.5 ${open ? "pb-[3px]" : "pb-3.5"}`}>
+          <h2 className="font-semibold text-foreground">{title}</h2>
+          <span
+            className={`text-foreground text-base transition-transform ${open ? "rotate-180" : ""}`}
+            aria-hidden="true"
+          >
+            ▾
+          </span>
+        </div>
+        {open && <div className="mx-4 border-b border-[#030a16]" />}
       </button>
       {open && <div className="px-4 py-4 flex flex-col gap-4 bg-background">{children}</div>}
     </section>
