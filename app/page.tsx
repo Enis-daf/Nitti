@@ -384,7 +384,7 @@ function CollapsibleSection({
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className={`w-full flex items-center justify-between px-4 py-3.5 text-left transition-colors bg-surface-header hover:bg-[#eef3f8] ${
+        className={`w-full flex items-center justify-between px-4 py-3.5 text-left transition-colors bg-surface-mint hover:bg-[#c9f7e8] ${
           open ? "border-b border-border" : ""
         }`}
       >
