@@ -185,6 +185,60 @@ function AlertBadge({ status }: { status: DashboardRow["alert_status"] }) {
   );
 }
 
+function StockTable({ rows }: { rows: DashboardRow[] }) {
+  return (
+    <div className="border border-border rounded-lg overflow-hidden">
+      <table className="w-full text-sm table-fixed">
+        <thead className="bg-background border-b-2 border-border">
+          <tr className="text-left">
+            <th className="px-2 py-2 font-semibold overflow-hidden w-[15%]">SKU</th>
+            <th className="px-2 py-2 font-semibold overflow-hidden w-[23%]">Nom</th>
+            <th className="px-2 py-2 font-semibold text-right overflow-hidden w-[10%]">
+              Physique
+            </th>
+            <th className="px-2 py-2 font-semibold text-right overflow-hidden w-[11%]">
+              Commandé
+            </th>
+            <th className="px-2 py-2 font-semibold text-right overflow-hidden w-[10%]">
+              Réservé
+            </th>
+            <th className="px-2 py-2 font-semibold text-right overflow-hidden w-[11%]">
+              Disponible
+            </th>
+            <th className="px-2 py-2 font-semibold overflow-hidden w-[20%]">Alerte</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.item_id} className="border-t border-border">
+              <td className="px-2 py-2 overflow-hidden text-ellipsis whitespace-nowrap">
+                {row.sku}
+              </td>
+              <td className="px-2 py-2 overflow-hidden text-ellipsis whitespace-nowrap">
+                {row.name}
+              </td>
+              <td className="px-2 py-2 text-right">{quantity(row.quantity_physical)}</td>
+              <td className="px-2 py-2 text-right">{quantity(row.quantity_ordered)}</td>
+              <td className="px-2 py-2 text-right">{quantity(row.quantity_reserved)}</td>
+              <td className="px-2 py-2 text-right">{quantity(row.quantity_available)}</td>
+              <td className="px-2 py-2">
+                <AlertBadge status={row.alert_status} />
+              </td>
+            </tr>
+          ))}
+          {rows.length === 0 && (
+            <tr>
+              <td className="px-2 py-4 text-center text-muted" colSpan={7}>
+                Aucune référence pour le moment.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function CollapsibleSection({
   id,
   title,
@@ -1248,6 +1302,12 @@ export default function Home() {
   const alertCount = dashboard.filter((row) => row.alert_status !== "ok").length;
   const productItems = items.filter((item) => item.item_type === "product");
   const componentItems = items.filter((item) => item.item_type === "component");
+  const finishedGoodRows = dashboard
+    .filter((row) => row.item_type === "product")
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const inputRows = dashboard
+    .filter((row) => row.item_type === "component")
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   if (loading) {
     return (
@@ -1420,68 +1480,17 @@ export default function Home() {
           )}
 
         <div>
-          <p className="text-sm font-medium text-foreground mb-2">Stock</p>
-          <div className="border border-border rounded-lg overflow-hidden">
-            <table className="w-full text-sm table-fixed">
-              <thead className="bg-background border-b-2 border-border">
-                <tr className="text-left">
-                  <th className="px-2 py-2 font-semibold overflow-hidden w-[11%]">SKU</th>
-                  <th className="px-2 py-2 font-semibold overflow-hidden w-[17%]">Nom</th>
-                  <th className="px-2 py-2 font-semibold overflow-hidden w-[10%]">Type</th>
-                  <th className="px-2 py-2 font-semibold text-right overflow-hidden w-[8%]">
-                    Physique
-                  </th>
-                  <th className="px-2 py-2 font-semibold text-right overflow-hidden w-[9%]">
-                    Commandé
-                  </th>
-                  <th className="px-2 py-2 font-semibold text-right overflow-hidden w-[8%]">
-                    Réservé
-                  </th>
-                  <th className="px-2 py-2 font-semibold text-right overflow-hidden w-[9%]">
-                    Disponible
-                  </th>
-                  <th className="px-2 py-2 font-semibold overflow-hidden w-[28%]">Alerte</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dashboard.map((row) => (
-                  <tr key={row.item_id} className="border-t border-border">
-                    <td className="px-2 py-2 overflow-hidden text-ellipsis whitespace-nowrap">
-                      {row.sku}
-                    </td>
-                    <td className="px-2 py-2 overflow-hidden text-ellipsis whitespace-nowrap">
-                      {row.name}
-                    </td>
-                    <td className="px-2 py-2 overflow-hidden text-ellipsis whitespace-nowrap">
-                      {row.item_type === "component" ? "Intrant" : "Produit fini"}
-                    </td>
-                    <td className="px-2 py-2 text-right">
-                      {quantity(row.quantity_physical)}
-                    </td>
-                    <td className="px-2 py-2 text-right">
-                      {quantity(row.quantity_ordered)}
-                    </td>
-                    <td className="px-2 py-2 text-right">
-                      {quantity(row.quantity_reserved)}
-                    </td>
-                    <td className="px-2 py-2 text-right">
-                      {quantity(row.quantity_available)}
-                    </td>
-                    <td className="px-2 py-2">
-                      <AlertBadge status={row.alert_status} />
-                    </td>
-                  </tr>
-                ))}
-                {dashboard.length === 0 && (
-                  <tr>
-                    <td className="px-2 py-4 text-center text-muted" colSpan={8}>
-                      Aucune référence pour le moment.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <p className="text-sm font-medium text-foreground mb-2">
+            Produits finis ({finishedGoodRows.length})
+          </p>
+          <StockTable rows={finishedGoodRows} />
+        </div>
+
+        <div>
+          <p className="text-sm font-medium text-foreground mb-2">
+            Intrants ({inputRows.length})
+          </p>
+          <StockTable rows={inputRows} />
         </div>
         </aside>
 
