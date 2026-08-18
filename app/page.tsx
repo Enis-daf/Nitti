@@ -1397,32 +1397,113 @@ export default function Home() {
       .reduce((sum, row) => sum + Number(row.quantity_physical ?? 0), 0);
   }
 
-  // alert_status on stock_dashboard is computed globally (physical/ordered/reserved
-  // summed across all locations), so an alert can only be pinned to a single
-  // location when the item's non-zero physical stock genuinely sits in exactly
-  // one place. Otherwise, per product decision, never guess — surface that the
-  // alert isn't (yet) location-resolvable instead of inventing a location.
-  function alertLocationLabel(itemId: string): string {
-    if (locations.length === 0) return "";
+  function elsewhereStock(itemId: string, excludeLocationId: string | null): ElsewhereStock[] {
+    const elsewhereMap = new Map<string, number>();
+    for (const row of stockPhysical) {
+      if (row.item_id !== itemId) continue;
+      if (row.location_id === excludeLocationId) continue;
+      if (row.location_id === null) continue;
+      const qty = Number(row.quantity_physical ?? 0);
+      if (qty <= 0) continue;
+      elsewhereMap.set(row.location_id, (elsewhereMap.get(row.location_id) ?? 0) + qty);
+    }
+    return Array.from(elsewhereMap.entries()).map(([locationId, qty]) => ({
+      locationId,
+      locationName: locations.find((location) => location.id === locationId)?.name ?? locationId,
+      quantity: qty,
+    }));
+  }
 
-    const nonZeroLocationIds = Array.from(
-      new Set(
-        stockPhysical
-          .filter(
-            (row) =>
-              row.item_id === itemId &&
-              row.location_id !== null &&
-              Number(row.quantity_physical ?? 0) !== 0,
-          )
-          .map((row) => row.location_id as string),
-      ),
-    );
+  type LocationAlert = {
+    key: string;
+    sku: string;
+    name: string;
+    locationLabel: string;
+    status: DashboardRow["alert_status"];
+    actionText: string | null;
+  };
 
-    if (nonZeroLocationIds.length === 0) return "Lieu non déterminé";
-    if (nonZeroLocationIds.length > 1) return "Plusieurs lieux";
+  // stock_dashboard.alert_status stays exactly as-is (physical/ordered/reserved
+  // summed globally) — untouched per the DB-migration-strictness rule, and
+  // still used as a fallback below. But severity for "Alertes importantes" must
+  // now be judged per (item, location), never from the global aggregate: a
+  // location can be in real local shortage even while another location's
+  // stock keeps the org-wide total looking fine. Local severity therefore only
+  // ever looks at that location's own physical balance (from stock_physical)
+  // against zero (rupture) and the item's low_stock_threshold (stock bas) —
+  // reserved/ordered stay global-only concepts since they aren't tied to a
+  // location without inventing an allocation model.
+  function computeLocationAlerts(): LocationAlert[] {
+    const entries: LocationAlert[] = [];
 
-    const location = locations.find((candidate) => candidate.id === nonZeroLocationIds[0]);
-    return location?.name ?? "Lieu non déterminé";
+    for (const row of dashboard) {
+      const itemLocationIds = Array.from(
+        new Set(
+          stockPhysical
+            .filter((sp) => sp.item_id === row.item_id && sp.location_id !== null)
+            .map((sp) => sp.location_id as string),
+        ),
+      );
+
+      let hasLocalAlert = false;
+
+      for (const locationId of itemLocationIds) {
+        const localPhysical = physicalAt(row.item_id, locationId);
+        const threshold = Number(row.low_stock_threshold ?? 0);
+
+        let status: "missing_physical_stock" | "low_physical_stock" | null = null;
+        if (localPhysical < 0) status = "missing_physical_stock";
+        else if (localPhysical <= threshold) status = "low_physical_stock";
+
+        if (!status) continue;
+
+        hasLocalAlert = true;
+        const locationName = locations.find((location) => location.id === locationId)?.name ?? locationId;
+
+        let actionText: string | null = null;
+        if (status === "missing_physical_stock") {
+          const deficit = -localPhysical;
+          const elsewhere = elsewhereStock(row.item_id, locationId);
+          const elsewhereTotal = elsewhere.reduce((sum, entry) => sum + entry.quantity, 0);
+
+          if (elsewhereTotal >= deficit && elsewhere.length > 0) {
+            const sources = elsewhere
+              .sort((a, b) => b.quantity - a.quantity)
+              .map((entry) => entry.locationName)
+              .join(", ");
+            actionText = `À transférer depuis ${sources}`;
+          } else {
+            actionText = "À commander";
+          }
+        }
+
+        entries.push({
+          key: `${row.item_id}-${locationId}`,
+          sku: row.sku,
+          name: row.name,
+          locationLabel: locationName,
+          status,
+          actionText,
+        });
+      }
+
+      // Fallback: a purely global issue (typically reservations/orders
+      // outweighing physical stock) that doesn't show up as a rupture at any
+      // single location still needs to surface somewhere — it must not
+      // replace a local alert, only fill in when there isn't one.
+      if (!hasLocalAlert && row.alert_status !== "ok") {
+        entries.push({
+          key: `${row.item_id}-global`,
+          sku: row.sku,
+          name: row.name,
+          locationLabel: "Tous les lieux",
+          status: row.alert_status,
+          actionText: null,
+        });
+      }
+    }
+
+    return entries;
   }
 
   function computeAvailabilityAtDate(order: ProductionOrder): IntrantAvailability[] {
@@ -1511,22 +1592,7 @@ export default function Home() {
 
       const onSite = localPhysical - competing;
 
-      const elsewhereMap = new Map<string, number>();
-      for (const row of stockPhysical) {
-        if (row.item_id !== itemId) continue;
-        if (row.location_id === orderLocationId) continue;
-        if (row.location_id === null) continue;
-        const qty = Number(row.quantity_physical ?? 0);
-        if (qty <= 0) continue;
-        elsewhereMap.set(row.location_id, (elsewhereMap.get(row.location_id) ?? 0) + qty);
-      }
-      const elsewhere: ElsewhereStock[] = Array.from(elsewhereMap.entries()).map(
-        ([locationId, qty]) => ({
-          locationId,
-          locationName: locations.find((location) => location.id === locationId)?.name ?? locationId,
-          quantity: qty,
-        }),
-      );
+      const elsewhere = elsewhereStock(itemId, orderLocationId);
       const elsewhereTotal = elsewhere.reduce((sum, entry) => sum + entry.quantity, 0);
 
       const missingBeforeTransfer = Math.max(required - onSite - incoming, 0);
@@ -1770,7 +1836,8 @@ export default function Home() {
     await supabase.auth.signOut();
   }
 
-  const alertCount = dashboard.filter((row) => row.alert_status !== "ok").length;
+  const locationAlerts = computeLocationAlerts();
+  const alertCount = locationAlerts.length;
   const productItems = items.filter((item) => item.item_type === "product");
   const componentItems = items.filter((item) => item.item_type === "component");
   const finishedGoodRows = dashboard
@@ -1933,26 +2000,22 @@ export default function Home() {
             <div className="flex flex-col gap-2">
               <p className="text-sm font-medium text-foreground">Alertes importantes</p>
               <div className="flex flex-col gap-1.5">
-                {dashboard
-                  .filter((row) => row.alert_status !== "ok")
-                  .map((row) => (
-                    <div
-                      key={row.item_id}
-                      className="flex items-center justify-between gap-3 rounded-md bg-surface-pink px-3 py-2 text-sm"
-                    >
+                {locationAlerts.map((alert) => (
+                  <div
+                    key={alert.key}
+                    className="flex flex-col gap-0.5 rounded-md bg-surface-pink px-3 py-2 text-sm"
+                  >
+                    <div className="flex items-center justify-between gap-3">
                       <span className="truncate min-w-0">
-                        {row.sku} — {row.name}
+                        {alert.sku} — {alert.name} — {alert.locationLabel}
                       </span>
-                      <div className="flex items-center gap-2 shrink-0">
-                        {alertLocationLabel(row.item_id) && (
-                          <span className="text-xs text-muted whitespace-nowrap">
-                            {alertLocationLabel(row.item_id)}
-                          </span>
-                        )}
-                        <AlertBadge status={row.alert_status} />
-                      </div>
+                      <AlertBadge status={alert.status} />
                     </div>
-                  ))}
+                    {alert.actionText && (
+                      <span className="text-xs text-muted">{alert.actionText}</span>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
           )}
