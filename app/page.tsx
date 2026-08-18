@@ -19,7 +19,42 @@ type ItemOption = {
   sku: string;
   name: string;
   item_type: "component" | "product";
+  default_location_id: string | null;
 };
+
+type Location = {
+  id: string;
+  name: string;
+  active: boolean;
+  note: string | null;
+};
+
+type StockPhysicalRow = {
+  item_id: string;
+  location_id: string | null;
+  quantity_physical: number | string;
+};
+
+type StockTransferStatus = "planned" | "in_transit" | "received" | "cancelled";
+
+type StockTransfer = {
+  id: string;
+  item_id: string;
+  source_location_id: string;
+  destination_location_id: string;
+  quantity: number;
+  planned_at: string | null;
+  status: StockTransferStatus;
+  note: string | null;
+  items: { sku: string; name: string };
+};
+
+function stockTransferStatusLabel(status: StockTransferStatus) {
+  if (status === "planned") return "Prévu";
+  if (status === "in_transit") return "En transit";
+  if (status === "received") return "Reçu";
+  return "Annulé";
+}
 
 type Supplier = {
   id: string;
@@ -47,6 +82,7 @@ type SupplierOrder = {
   expected_at: string | null;
   status: SupplierOrderStatus;
   supplier_id: string | null;
+  destination_location_id: string | null;
   supplier_order_lines: SupplierOrderLine[];
 };
 
@@ -101,6 +137,7 @@ type ProductionOrder = {
   quantity_completed: number;
   status: ProductionOrderStatus;
   planned_at: string | null;
+  location_id: string | null;
   note: string | null;
 };
 
@@ -112,23 +149,44 @@ type ShortageLine = {
   missing: number;
 };
 
-type AvailabilityStatus = "ok" | "missing" | "too_late" | "not_ordered";
+type AvailabilityStatus = "ok" | "a_transferer" | "missing" | "too_late" | "not_ordered";
+
+type ElsewhereStock = {
+  locationId: string;
+  locationName: string;
+  quantity: number;
+};
 
 type IntrantAvailability = {
   itemId: string;
   label: string;
   required: number;
-  availableAtDate: number;
+  onSite: number;
+  elsewhere: ElsewhereStock[];
+  elsewhereTotal: number;
+  incoming: number;
+  transferable: number;
   missing: number;
   nextArrival: string | null;
   status: AvailabilityStatus;
 };
 
-function availabilityStatusLabel(status: AvailabilityStatus) {
-  if (status === "ok") return "OK";
-  if (status === "missing") return "Stock insuffisant";
-  if (status === "too_late") return "Arrive trop tard";
-  return "À commander";
+function availabilityActionLabel(line: IntrantAvailability): string {
+  if (line.status === "ok") return "OK";
+  if (line.status === "a_transferer") {
+    const source = line.elsewhere.length === 1 ? ` depuis ${line.elsewhere[0].locationName}` : "";
+    return `À transférer ${quantity(line.transferable)}${source}`;
+  }
+  if (line.status === "not_ordered") return `À commander ${quantity(line.missing)}`;
+  if (line.status === "too_late") return "Arrive trop tard";
+  return `Stock insuffisant (${quantity(line.missing)})`;
+}
+
+function availabilityActionClass(status: AvailabilityStatus): string {
+  if (status === "ok") return "";
+  if (status === "a_transferer") return "text-accent";
+  if (status === "too_late") return "text-orange-600";
+  return "text-red-600";
 }
 
 function todayISO() {
@@ -185,7 +243,22 @@ function AlertBadge({ status }: { status: DashboardRow["alert_status"] }) {
   );
 }
 
-function StockTable({ rows }: { rows: DashboardRow[] }) {
+function StockTable({
+  rows,
+  locations,
+  stockPhysical,
+  expandedItemId,
+  onToggleExpand,
+}: {
+  rows: DashboardRow[];
+  locations: Location[];
+  stockPhysical: StockPhysicalRow[];
+  expandedItemId: string | null;
+  onToggleExpand: (itemId: string) => void;
+}) {
+  const activeLocations = locations.filter((location) => location.active);
+  const showLocationDetail = activeLocations.length > 1;
+
   return (
     <div className="border border-border rounded-lg overflow-hidden">
       <table className="w-full text-sm table-fixed">
@@ -209,23 +282,60 @@ function StockTable({ rows }: { rows: DashboardRow[] }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
-            <tr key={row.item_id} className="border-t border-border">
-              <td className="px-2 py-2 overflow-hidden text-ellipsis whitespace-nowrap">
-                {row.sku}
-              </td>
-              <td className="px-2 py-2 overflow-hidden text-ellipsis whitespace-nowrap">
-                {row.name}
-              </td>
-              <td className="px-2 py-2 text-right">{quantity(row.quantity_physical)}</td>
-              <td className="px-2 py-2 text-right">{quantity(row.quantity_ordered)}</td>
-              <td className="px-2 py-2 text-right">{quantity(row.quantity_reserved)}</td>
-              <td className="px-2 py-2 text-right">{quantity(row.quantity_available)}</td>
-              <td className="px-2 py-2">
-                <AlertBadge status={row.alert_status} />
-              </td>
-            </tr>
-          ))}
+          {rows.map((row) => {
+            const isExpanded = showLocationDetail && expandedItemId === row.item_id;
+            const detailRows = isExpanded
+              ? activeLocations
+                  .map((location) => ({
+                    location,
+                    qty: stockPhysical
+                      .filter(
+                        (physical) =>
+                          physical.item_id === row.item_id &&
+                          physical.location_id === location.id,
+                      )
+                      .reduce((sum, physical) => sum + Number(physical.quantity_physical ?? 0), 0),
+                  }))
+                  .filter((entry) => entry.qty !== 0)
+              : [];
+
+            return [
+              <tr
+                key={row.item_id}
+                className={`border-t border-border ${showLocationDetail ? "cursor-pointer hover:bg-black/[0.02]" : ""}`}
+                onClick={showLocationDetail ? () => onToggleExpand(row.item_id) : undefined}
+              >
+                <td className="px-2 py-2 overflow-hidden text-ellipsis whitespace-nowrap">
+                  {row.sku}
+                </td>
+                <td className="px-2 py-2 overflow-hidden text-ellipsis whitespace-nowrap">
+                  {row.name}
+                </td>
+                <td className="px-2 py-2 text-right">{quantity(row.quantity_physical)}</td>
+                <td className="px-2 py-2 text-right">{quantity(row.quantity_ordered)}</td>
+                <td className="px-2 py-2 text-right">{quantity(row.quantity_reserved)}</td>
+                <td className="px-2 py-2 text-right">{quantity(row.quantity_available)}</td>
+                <td className="px-2 py-2">
+                  <AlertBadge status={row.alert_status} />
+                </td>
+              </tr>,
+              isExpanded && (
+                <tr key={`${row.item_id}-detail`} className="bg-background">
+                  <td colSpan={7} className="px-4 py-2">
+                    <div className="flex flex-col gap-1 text-xs text-muted">
+                      {detailRows.length === 0 && <span>Aucun stock localisé.</span>}
+                      {detailRows.map(({ location, qty }) => (
+                        <div key={location.id} className="flex justify-between gap-4">
+                          <span>{location.name}</span>
+                          <span>{quantity(qty)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+              ),
+            ];
+          })}
           {rows.length === 0 && (
             <tr>
               <td className="px-2 py-4 text-center text-muted" colSpan={7}>
@@ -243,14 +353,22 @@ function CollapsibleSection({
   id,
   title,
   defaultOpen,
+  forceOpen,
   children,
 }: {
   id: string;
   title: string;
   defaultOpen: boolean;
+  forceOpen?: boolean;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const [prevForceOpen, setPrevForceOpen] = useState(forceOpen ?? false);
+
+  if ((forceOpen ?? false) !== prevForceOpen) {
+    setPrevForceOpen(forceOpen ?? false);
+    if (forceOpen) setOpen(true);
+  }
 
   useEffect(() => {
     const stored = window.localStorage.getItem(`nitti-section-${id}`);
@@ -294,10 +412,17 @@ export default function Home() {
   const [dashboard, setDashboard] = useState<DashboardRow[]>([]);
   const [items, setItems] = useState<ItemOption[]>([]);
 
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [stockPhysical, setStockPhysical] = useState<StockPhysicalRow[]>([]);
+  const [locationName, setLocationName] = useState("");
+  const [locationNote, setLocationNote] = useState("");
+  const [expandedStockItemId, setExpandedStockItemId] = useState<string | null>(null);
+
   const [itemSku, setItemSku] = useState("");
   const [itemName, setItemName] = useState("");
   const [itemType, setItemType] = useState<"component" | "product">("component");
   const [itemThreshold, setItemThreshold] = useState("0");
+  const [itemDefaultLocationId, setItemDefaultLocationId] = useState("");
 
   const [movementItemId, setMovementItemId] = useState("");
   const [movementType, setMovementType] = useState<"initial_count" | "adjustment">(
@@ -305,6 +430,7 @@ export default function Home() {
   );
   const [movementQuantity, setMovementQuantity] = useState("");
   const [movementNote, setMovementNote] = useState("");
+  const [movementLocationId, setMovementLocationId] = useState("");
 
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [supplierOrders, setSupplierOrders] = useState<SupplierOrder[]>([]);
@@ -314,12 +440,13 @@ export default function Home() {
   const [orderSupplierId, setOrderSupplierId] = useState("");
   const [orderNumber, setOrderNumber] = useState("");
   const [orderExpectedAt, setOrderExpectedAt] = useState("");
+  const [orderDestinationLocationId, setOrderDestinationLocationId] = useState("");
   const [orderLines, setOrderLines] = useState<DraftOrderLine[]>([
     { itemId: "", quantity: "" },
   ]);
 
   const [receiptDrafts, setReceiptDrafts] = useState<
-    Record<string, { quantity: string; note: string }>
+    Record<string, { quantity: string; note: string; locationId: string }>
   >({});
 
   const [bomLines, setBomLines] = useState<BomLine[]>([]);
@@ -338,10 +465,19 @@ export default function Home() {
   const [productionItemId, setProductionItemId] = useState("");
   const [productionQuantity, setProductionQuantity] = useState("");
   const [productionPlannedAt, setProductionPlannedAt] = useState("");
+  const [productionLocationId, setProductionLocationId] = useState("");
   const [productionNote, setProductionNote] = useState("");
 
   const [shortageByOrder, setShortageByOrder] = useState<Record<string, ShortageLine[]>>({});
   const [overrideReasonByOrder, setOverrideReasonByOrder] = useState<Record<string, string>>({});
+
+  const [transfers, setTransfers] = useState<StockTransfer[]>([]);
+  const [transferItemId, setTransferItemId] = useState("");
+  const [transferSourceLocationId, setTransferSourceLocationId] = useState("");
+  const [transferDestinationLocationId, setTransferDestinationLocationId] = useState("");
+  const [transferQuantity, setTransferQuantity] = useState("");
+  const [transferPlannedAt, setTransferPlannedAt] = useState("");
+  const [forceOpenTransfers, setForceOpenTransfers] = useState(false);
 
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
@@ -355,7 +491,7 @@ export default function Home() {
         .order("sku"),
       supabase
         .from("items")
-        .select("id, sku, name, item_type")
+        .select("id, sku, name, item_type, default_location_id")
         .eq("organization_id", organizationId)
         .eq("active", true)
         .order("sku"),
@@ -376,6 +512,32 @@ export default function Home() {
     }
   }, []);
 
+  const loadLocationData = useCallback(async (organizationId: string) => {
+    const [locationsResult, stockPhysicalResult] = await Promise.all([
+      supabase
+        .from("locations")
+        .select("id, name, active, note")
+        .eq("organization_id", organizationId)
+        .order("name"),
+      supabase
+        .from("stock_physical")
+        .select("item_id, location_id, quantity_physical")
+        .eq("organization_id", organizationId),
+    ]);
+
+    if (locationsResult.error) {
+      setMessage(locationsResult.error.message);
+    } else {
+      setLocations((locationsResult.data ?? []) as Location[]);
+    }
+
+    if (stockPhysicalResult.error) {
+      setMessage(stockPhysicalResult.error.message);
+    } else {
+      setStockPhysical((stockPhysicalResult.data ?? []) as StockPhysicalRow[]);
+    }
+  }, []);
+
   const loadSupplierData = useCallback(async (organizationId: string) => {
     const [suppliersResult, ordersResult] = await Promise.all([
       supabase
@@ -386,7 +548,7 @@ export default function Home() {
       supabase
         .from("supplier_orders")
         .select(
-          "id, order_number, expected_at, status, supplier_id, supplier_order_lines(id, item_id, quantity_ordered, quantity_received, items(sku, name))",
+          "id, order_number, expected_at, status, supplier_id, destination_location_id, supplier_order_lines(id, item_id, quantity_ordered, quantity_received, items(sku, name))",
         )
         .eq("organization_id", organizationId)
         .in("status", ["ordered", "partially_received"])
@@ -440,7 +602,7 @@ export default function Home() {
     const { data, error } = await supabase
       .from("production_orders")
       .select(
-        "id, produced_item_id, quantity_planned, quantity_completed, status, planned_at, note",
+        "id, produced_item_id, quantity_planned, quantity_completed, status, planned_at, location_id, note",
       )
       .eq("organization_id", organizationId)
       .eq("status", "planned")
@@ -450,6 +612,23 @@ export default function Home() {
       setMessage(error.message);
     } else {
       setProductionOrders((data ?? []) as ProductionOrder[]);
+    }
+  }, []);
+
+  const loadTransferData = useCallback(async (organizationId: string) => {
+    const { data, error } = await supabase
+      .from("stock_transfers")
+      .select(
+        "id, item_id, source_location_id, destination_location_id, quantity, planned_at, status, note, items(sku, name)",
+      )
+      .eq("organization_id", organizationId)
+      .in("status", ["planned", "in_transit"])
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      setTransfers((data ?? []) as unknown as StockTransfer[]);
     }
   }, []);
 
@@ -487,14 +666,23 @@ export default function Home() {
       setNeedsOrganization(false);
       await Promise.all([
         loadStockData(org.id),
+        loadLocationData(org.id),
         loadSupplierData(org.id),
         loadCustomerData(org.id),
         loadProductionData(org.id),
+        loadTransferData(org.id),
       ]);
     }
 
     setLoading(false);
-  }, [loadStockData, loadSupplierData, loadCustomerData, loadProductionData]);
+  }, [
+    loadStockData,
+    loadLocationData,
+    loadSupplierData,
+    loadCustomerData,
+    loadProductionData,
+    loadTransferData,
+  ]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -522,11 +710,14 @@ export default function Home() {
         setNeedsOrganization(false);
         setDashboard([]);
         setItems([]);
+        setLocations([]);
+        setStockPhysical([]);
         setSuppliers([]);
         setSupplierOrders([]);
         setBomLines([]);
         setCustomerOrders([]);
         setProductionOrders([]);
+        setTransfers([]);
         setLoading(false);
       }
     });
@@ -602,6 +793,7 @@ export default function Home() {
       name: itemName.trim(),
       item_type: itemType,
       low_stock_threshold: Number(itemThreshold || 0),
+      default_location_id: itemDefaultLocationId || null,
     });
 
     if (error) {
@@ -610,10 +802,63 @@ export default function Home() {
       setItemSku("");
       setItemName("");
       setItemThreshold("0");
+      setItemDefaultLocationId("");
       await loadStockData(organization.id);
     }
 
     setLoading(false);
+  }
+
+  function slugifyLocationCode(name: string) {
+    const base = name
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+    return `${base || "LIEU"}_${suffix}`;
+  }
+
+  async function addLocation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!organization) return;
+
+    setLoading(true);
+    setMessage("");
+
+    const { error } = await supabase.from("locations").insert({
+      organization_id: organization.id,
+      code: slugifyLocationCode(locationName.trim()),
+      name: locationName.trim(),
+      note: locationNote.trim() || null,
+    });
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      setLocationName("");
+      setLocationNote("");
+      await loadLocationData(organization.id);
+    }
+
+    setLoading(false);
+  }
+
+  async function updateLocation(
+    locationId: string,
+    patch: { name?: string; note?: string | null; active?: boolean },
+  ) {
+    if (!organization) return;
+
+    const { error } = await supabase.from("locations").update(patch).eq("id", locationId);
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      await loadLocationData(organization.id);
+    }
   }
 
   async function addStockMovement(event: FormEvent<HTMLFormElement>) {
@@ -624,9 +869,14 @@ export default function Home() {
     setLoading(true);
     setMessage("");
 
+    const activeLocations = locations.filter((location) => location.active);
+    const effectiveLocationId =
+      movementLocationId || (activeLocations.length === 1 ? activeLocations[0].id : null);
+
     const { error } = await supabase.from("stock_movements").insert({
       organization_id: organization.id,
       item_id: movementItemId,
+      location_id: effectiveLocationId,
       movement_type: movementType,
       quantity: Number(movementQuantity),
       note: movementNote.trim() || null,
@@ -638,6 +888,7 @@ export default function Home() {
       setMovementQuantity("");
       setMovementNote("");
       await loadStockData(organization.id);
+      await loadLocationData(organization.id);
     }
 
     setLoading(false);
@@ -699,6 +950,10 @@ export default function Home() {
     setLoading(true);
     setMessage("");
 
+    const activeLocations = locations.filter((location) => location.active);
+    const destinationLocationId =
+      orderDestinationLocationId || (activeLocations.length === 1 ? activeLocations[0].id : null);
+
     const { data: order, error: orderError } = await supabase
       .from("supplier_orders")
       .insert({
@@ -706,6 +961,7 @@ export default function Home() {
         supplier_id: orderSupplierId || null,
         order_number: orderNumber.trim() || null,
         expected_at: orderExpectedAt || null,
+        destination_location_id: destinationLocationId,
       })
       .select("id")
       .single();
@@ -731,6 +987,7 @@ export default function Home() {
       setOrderSupplierId("");
       setOrderNumber("");
       setOrderExpectedAt("");
+      setOrderDestinationLocationId("");
       setOrderLines([{ itemId: "", quantity: "" }]);
       await Promise.all([
         loadSupplierData(organization.id),
@@ -759,6 +1016,7 @@ export default function Home() {
       p_line_id: lineId,
       p_quantity: receivedQuantity,
       p_note: draft?.note?.trim() || null,
+      p_location_id: draft?.locationId || null,
     });
 
     if (error) {
@@ -772,6 +1030,7 @@ export default function Home() {
       await Promise.all([
         loadSupplierData(organization.id),
         loadStockData(organization.id),
+        loadLocationData(organization.id),
       ]);
     }
 
@@ -784,6 +1043,7 @@ export default function Home() {
       supplier_id?: string | null;
       order_number?: string | null;
       expected_at?: string | null;
+      destination_location_id?: string | null;
       status?: SupplierOrderStatus;
     },
   ) {
@@ -1071,6 +1331,15 @@ export default function Home() {
       return;
     }
 
+    const activeLocations = locations.filter((location) => location.active);
+    const productionLocation =
+      productionLocationId || (activeLocations.length === 1 ? activeLocations[0].id : null);
+
+    if (!productionLocation) {
+      setMessage("Sélectionne un lieu de production.");
+      return;
+    }
+
     setLoading(true);
     setMessage("");
 
@@ -1079,6 +1348,7 @@ export default function Home() {
       produced_item_id: productionItemId,
       quantity_planned: plannedQuantity,
       planned_at: productionPlannedAt || null,
+      location_id: productionLocation,
       note: productionNote.trim() || null,
     });
 
@@ -1088,6 +1358,7 @@ export default function Home() {
       setProductionItemId("");
       setProductionQuantity("");
       setProductionPlannedAt("");
+      setProductionLocationId("");
       setProductionNote("");
       await loadProductionData(organization.id);
     }
@@ -1101,6 +1372,7 @@ export default function Home() {
       produced_item_id?: string;
       quantity_planned?: number;
       planned_at?: string | null;
+      location_id?: string | null;
       note?: string | null;
       status?: ProductionOrderStatus;
     },
@@ -1119,8 +1391,15 @@ export default function Home() {
     }
   }
 
+  function physicalAt(itemId: string, locationId: string | null) {
+    return stockPhysical
+      .filter((row) => row.item_id === itemId && row.location_id === locationId)
+      .reduce((sum, row) => sum + Number(row.quantity_physical ?? 0), 0);
+  }
+
   function computeAvailabilityAtDate(order: ProductionOrder): IntrantAvailability[] {
     const targetDate = order.planned_at || todayISO();
+    const orderLocationId = order.location_id;
     const requiredInputs = bomLines.filter(
       (line) => line.product_item_id === order.produced_item_id,
     );
@@ -1129,15 +1408,14 @@ export default function Home() {
       const itemId = line.component_item_id;
       const required = line.quantity_per * order.quantity_planned;
 
-      const physical = Number(
-        dashboard.find((row) => row.item_id === itemId)?.quantity_physical ?? 0,
-      );
+      const localPhysical = physicalAt(itemId, orderLocationId);
 
-      let incomingByDate = 0;
+      let incoming = 0;
       let nextArrival: string | null = null;
 
       for (const supplierOrder of supplierOrders) {
         if (!supplierOrder.expected_at) continue;
+        if (supplierOrder.destination_location_id !== orderLocationId) continue;
 
         for (const supplierLine of supplierOrder.supplier_order_lines) {
           if (supplierLine.item_id !== itemId) continue;
@@ -1150,7 +1428,7 @@ export default function Home() {
           }
 
           if (supplierOrder.expected_at <= targetDate) {
-            incomingByDate += remaining;
+            incoming += remaining;
           }
         }
       }
@@ -1158,6 +1436,7 @@ export default function Home() {
       for (const otherOrder of productionOrders) {
         if (otherOrder.id === order.id) continue;
         if (otherOrder.produced_item_id !== itemId) continue;
+        if (otherOrder.location_id !== orderLocationId) continue;
         if (otherOrder.planned_at === null) continue;
 
         if (nextArrival === null || otherOrder.planned_at < nextArrival) {
@@ -1165,7 +1444,22 @@ export default function Home() {
         }
 
         if (otherOrder.planned_at <= targetDate) {
-          incomingByDate += otherOrder.quantity_planned;
+          incoming += otherOrder.quantity_planned;
+        }
+      }
+
+      for (const transfer of transfers) {
+        if (transfer.item_id !== itemId) continue;
+        if (transfer.destination_location_id !== orderLocationId) continue;
+        if (transfer.status !== "planned" && transfer.status !== "in_transit") continue;
+        if (!transfer.planned_at) continue;
+
+        if (nextArrival === null || transfer.planned_at < nextArrival) {
+          nextArrival = transfer.planned_at;
+        }
+
+        if (transfer.planned_at <= targetDate) {
+          incoming += transfer.quantity;
         }
       }
 
@@ -1173,6 +1467,7 @@ export default function Home() {
 
       for (const otherOrder of productionOrders) {
         if (otherOrder.id === order.id) continue;
+        if (otherOrder.location_id !== orderLocationId) continue;
         if (otherOrder.planned_at !== null && otherOrder.planned_at > targetDate) continue;
 
         const otherBomLines = bomLines.filter(
@@ -1186,12 +1481,35 @@ export default function Home() {
         }
       }
 
-      const availableAtDate = physical + incomingByDate - competing;
-      const missing = Math.max(required - availableAtDate, 0);
+      const onSite = localPhysical - competing;
+
+      const elsewhereMap = new Map<string, number>();
+      for (const row of stockPhysical) {
+        if (row.item_id !== itemId) continue;
+        if (row.location_id === orderLocationId) continue;
+        if (row.location_id === null) continue;
+        const qty = Number(row.quantity_physical ?? 0);
+        if (qty <= 0) continue;
+        elsewhereMap.set(row.location_id, (elsewhereMap.get(row.location_id) ?? 0) + qty);
+      }
+      const elsewhere: ElsewhereStock[] = Array.from(elsewhereMap.entries()).map(
+        ([locationId, qty]) => ({
+          locationId,
+          locationName: locations.find((location) => location.id === locationId)?.name ?? locationId,
+          quantity: qty,
+        }),
+      );
+      const elsewhereTotal = elsewhere.reduce((sum, entry) => sum + entry.quantity, 0);
+
+      const missingBeforeTransfer = Math.max(required - onSite - incoming, 0);
+      const transferable = Math.min(missingBeforeTransfer, elsewhereTotal);
+      const stillMissing = missingBeforeTransfer - transferable;
 
       let status: AvailabilityStatus;
-      if (required <= availableAtDate) {
+      if (missingBeforeTransfer === 0) {
         status = "ok";
+      } else if (stillMissing === 0) {
+        status = "a_transferer";
       } else if (nextArrival === null) {
         status = "not_ordered";
       } else if (nextArrival > targetDate) {
@@ -1206,8 +1524,12 @@ export default function Home() {
         itemId,
         label: inputItem ? `${inputItem.sku} — ${inputItem.name}` : itemId,
         required,
-        availableAtDate,
-        missing,
+        onSite,
+        elsewhere,
+        elsewhereTotal,
+        incoming,
+        transferable,
+        missing: stillMissing,
         nextArrival,
         status,
       };
@@ -1222,8 +1544,11 @@ export default function Home() {
 
     for (const line of requiredInputs) {
       const required = line.quantity_per * order.quantity_planned;
-      const dashboardRow = dashboard.find((row) => row.item_id === line.component_item_id);
-      const available = Number(dashboardRow?.quantity_available ?? 0);
+      const localPhysical = physicalAt(line.component_item_id, order.location_id);
+      const reserved = Number(
+        dashboard.find((row) => row.item_id === line.component_item_id)?.quantity_reserved ?? 0,
+      );
+      const available = localPhysical - reserved;
 
       if (required > available) {
         const inputItem = items.find((item) => item.id === line.component_item_id);
@@ -1238,6 +1563,18 @@ export default function Home() {
     }
 
     return shortages;
+  }
+
+  function openTransferDraft(order: ProductionOrder, line: IntrantAvailability) {
+    if (!order.location_id || line.elsewhere.length === 0) return;
+
+    setTransferItemId(line.itemId);
+    setTransferSourceLocationId(line.elsewhere[0].locationId);
+    setTransferDestinationLocationId(order.location_id);
+    setTransferQuantity(String(line.transferable));
+    setTransferPlannedAt(order.planned_at ?? "");
+    setForceOpenTransfers(true);
+    window.setTimeout(() => setForceOpenTransfers(false), 0);
   }
 
   function handleCompleteClick(order: ProductionOrder) {
@@ -1289,10 +1626,116 @@ export default function Home() {
       await Promise.all([
         loadProductionData(organization.id),
         loadStockData(organization.id),
+        loadLocationData(organization.id),
       ]);
     }
 
     setLoading(false);
+  }
+
+  async function addTransfer(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!organization) return;
+
+    const transferQuantityValue = Number(transferQuantity);
+    if (
+      !transferItemId ||
+      !transferSourceLocationId ||
+      !transferDestinationLocationId ||
+      !transferQuantityValue ||
+      transferQuantityValue <= 0
+    ) {
+      setMessage("Sélectionne une référence, deux lieux différents et une quantité valide.");
+      return;
+    }
+
+    if (transferSourceLocationId === transferDestinationLocationId) {
+      setMessage("Le lieu source et le lieu de destination doivent être différents.");
+      return;
+    }
+
+    setLoading(true);
+    setMessage("");
+
+    const { error } = await supabase.from("stock_transfers").insert({
+      organization_id: organization.id,
+      item_id: transferItemId,
+      source_location_id: transferSourceLocationId,
+      destination_location_id: transferDestinationLocationId,
+      quantity: transferQuantityValue,
+      planned_at: transferPlannedAt || null,
+    });
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      setTransferItemId("");
+      setTransferSourceLocationId("");
+      setTransferDestinationLocationId("");
+      setTransferQuantity("");
+      setTransferPlannedAt("");
+      await loadTransferData(organization.id);
+    }
+
+    setLoading(false);
+  }
+
+  async function departTransfer(transferId: string) {
+    if (!organization) return;
+
+    setLoading(true);
+    setMessage("");
+
+    const { error } = await supabase.rpc("depart_stock_transfer", {
+      p_transfer_id: transferId,
+    });
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      await loadTransferData(organization.id);
+    }
+
+    setLoading(false);
+  }
+
+  async function receiveTransfer(transferId: string) {
+    if (!organization) return;
+
+    setLoading(true);
+    setMessage("");
+
+    const { error } = await supabase.rpc("receive_stock_transfer", {
+      p_transfer_id: transferId,
+    });
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      await Promise.all([
+        loadTransferData(organization.id),
+        loadStockData(organization.id),
+        loadLocationData(organization.id),
+      ]);
+    }
+
+    setLoading(false);
+  }
+
+  async function cancelTransfer(transferId: string) {
+    if (!organization) return;
+
+    const { error } = await supabase
+      .from("stock_transfers")
+      .update({ status: "cancelled" })
+      .eq("id", transferId);
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      await loadTransferData(organization.id);
+    }
   }
 
   async function signOut() {
@@ -1483,14 +1926,30 @@ export default function Home() {
           <p className="text-sm font-medium text-foreground mb-2">
             Produits finis ({finishedGoodRows.length})
           </p>
-          <StockTable rows={finishedGoodRows} />
+          <StockTable
+            rows={finishedGoodRows}
+            locations={locations}
+            stockPhysical={stockPhysical}
+            expandedItemId={expandedStockItemId}
+            onToggleExpand={(itemId) =>
+              setExpandedStockItemId((current) => (current === itemId ? null : itemId))
+            }
+          />
         </div>
 
         <div>
           <p className="text-sm font-medium text-foreground mb-2">
             Intrants ({inputRows.length})
           </p>
-          <StockTable rows={inputRows} />
+          <StockTable
+            rows={inputRows}
+            locations={locations}
+            stockPhysical={stockPhysical}
+            expandedItemId={expandedStockItemId}
+            onToggleExpand={(itemId) =>
+              setExpandedStockItemId((current) => (current === itemId ? null : itemId))
+            }
+          />
         </div>
         </aside>
 
@@ -1547,6 +2006,26 @@ export default function Home() {
             />
           </label>
 
+          {locations.length > 1 && (
+            <label className="flex flex-col gap-1 text-sm">
+              Lieu par défaut (optionnel)
+              <select
+                value={itemDefaultLocationId}
+                onChange={(event) => setItemDefaultLocationId(event.target.value)}
+                className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground focus:outline-none focus:border-accent"
+              >
+                <option value="">Aucun</option>
+                {locations
+                  .filter((location) => location.active)
+                  .map((location) => (
+                    <option key={location.id} value={location.id}>
+                      {location.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          )}
+
           <button
             type="submit"
             disabled={loading}
@@ -1555,6 +2034,105 @@ export default function Home() {
             Ajouter la référence
           </button>
         </form>
+          </CollapsibleSection>
+
+          <CollapsibleSection id="locations" title="Lieux de stock" defaultOpen={false}>
+        <form
+          onSubmit={addLocation}
+          className="flex flex-col gap-3 border border-border rounded-lg p-4 max-w-md bg-background"
+        >
+          <label className="flex flex-col gap-1 text-sm">
+            Nom
+            <input
+              type="text"
+              required
+              value={locationName}
+              onChange={(event) => setLocationName(event.target.value)}
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm">
+            Note (optionnel)
+            <input
+              type="text"
+              value={locationNote}
+              onChange={(event) => setLocationNote(event.target.value)}
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
+            />
+          </label>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="rounded-md bg-accent text-white px-3 py-2 font-medium transition-colors hover:bg-accent-dark disabled:opacity-50 disabled:hover:bg-accent"
+          >
+            Ajouter le lieu
+          </button>
+        </form>
+
+        <div className="overflow-x-auto border border-border rounded-lg">
+          <table className="w-full text-sm">
+            <thead className="bg-background border-b-2 border-border">
+              <tr className="text-left">
+                <th className="px-3 py-2 font-semibold">Nom</th>
+                <th className="px-3 py-2 font-semibold">Note</th>
+                <th className="px-3 py-2 font-semibold">Statut</th>
+              </tr>
+            </thead>
+            <tbody>
+              {locations.map((location) => (
+                <tr key={location.id} className="border-t border-border">
+                  <td className="px-3 py-2">
+                    <input
+                      type="text"
+                      defaultValue={location.name}
+                      onBlur={(event) => {
+                        const value = event.target.value.trim();
+                        if (value) void updateLocation(location.id, { name: value });
+                      }}
+                      className="border border-border rounded-md px-2 py-1 bg-background text-foreground focus:outline-none focus:border-accent"
+                    />
+                  </td>
+                  <td className="px-3 py-2">
+                    <input
+                      type="text"
+                      defaultValue={location.note ?? ""}
+                      placeholder="Note"
+                      onBlur={(event) =>
+                        void updateLocation(location.id, {
+                          note: event.target.value.trim() || null,
+                        })
+                      }
+                      className="border border-border rounded-md px-2 py-1 w-full bg-background text-foreground focus:outline-none focus:border-accent"
+                    />
+                  </td>
+                  <td className="px-3 py-2">
+                    <button
+                      type="button"
+                      onClick={() => void updateLocation(location.id, { active: !location.active })}
+                      disabled={loading}
+                      className={`rounded-md border px-2 py-1 text-xs transition-colors disabled:opacity-50 ${
+                        location.active
+                          ? "border-border hover:border-accent hover:text-accent"
+                          : "border-red-300 text-red-600 hover:bg-red-50"
+                      }`}
+                    >
+                      {location.active ? "Actif" : "Inactif"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {locations.length === 0 && (
+                <tr>
+                  <td className="px-3 py-4 text-center text-muted" colSpan={3}>
+                    Aucun lieu de stock pour le moment.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
           </CollapsibleSection>
 
           <CollapsibleSection id="movements" title="Mouvements de stock" defaultOpen={false}>
@@ -1567,7 +2145,14 @@ export default function Home() {
             <select
               required
               value={movementItemId}
-              onChange={(event) => setMovementItemId(event.target.value)}
+              onChange={(event) => {
+                const nextItemId = event.target.value;
+                setMovementItemId(nextItemId);
+                const nextItem = items.find((item) => item.id === nextItemId);
+                if (nextItem?.default_location_id) {
+                  setMovementLocationId(nextItem.default_location_id);
+                }
+              }}
               className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
             >
               <option value="" disabled>
@@ -1580,6 +2165,29 @@ export default function Home() {
               ))}
             </select>
           </label>
+
+          {locations.filter((location) => location.active).length > 1 && (
+            <label className="flex flex-col gap-1 text-sm">
+              Lieu
+              <select
+                required
+                value={movementLocationId}
+                onChange={(event) => setMovementLocationId(event.target.value)}
+                className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground focus:outline-none focus:border-accent"
+              >
+                <option value="" disabled>
+                  Sélectionner un lieu
+                </option>
+                {locations
+                  .filter((location) => location.active)
+                  .map((location) => (
+                    <option key={location.id} value={location.id}>
+                      {location.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          )}
 
           <label className="flex flex-col gap-1 text-sm">
             Type
@@ -2022,6 +2630,29 @@ export default function Home() {
               />
             </label>
 
+            {locations.filter((location) => location.active).length > 1 && (
+              <label className="flex flex-col gap-1 text-sm">
+                Lieu de destination
+                <select
+                  required
+                  value={orderDestinationLocationId}
+                  onChange={(event) => setOrderDestinationLocationId(event.target.value)}
+                  className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground focus:outline-none focus:border-accent"
+                >
+                  <option value="" disabled>
+                    Sélectionner un lieu
+                  </option>
+                  {locations
+                    .filter((location) => location.active)
+                    .map((location) => (
+                      <option key={location.id} value={location.id}>
+                        {location.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            )}
+
             <div className="flex flex-col gap-2">
               <p className="text-sm">Lignes</p>
               {orderLines.map((line, index) => (
@@ -2135,6 +2766,26 @@ export default function Home() {
                     }
                     className="border border-border rounded-md px-2 py-1 text-xs bg-background text-foreground focus:outline-none focus:border-accent"
                   />
+                  {locations.filter((location) => location.active).length > 1 && (
+                    <select
+                      value={order.destination_location_id ?? ""}
+                      onChange={(event) =>
+                        void updateSupplierOrder(order.id, {
+                          destination_location_id: event.target.value || null,
+                        })
+                      }
+                      className="border border-border rounded-md px-2 py-1 text-xs bg-background text-foreground focus:outline-none focus:border-accent"
+                    >
+                      <option value="">Aucun lieu</option>
+                      {locations
+                        .filter((location) => location.active)
+                        .map((location) => (
+                          <option key={location.id} value={location.id}>
+                            {location.name}
+                          </option>
+                        ))}
+                    </select>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <span
@@ -2218,11 +2869,42 @@ export default function Home() {
                                       [line.id]: {
                                         quantity: event.target.value,
                                         note: current[line.id]?.note ?? "",
+                                        locationId:
+                                          current[line.id]?.locationId ??
+                                          order.destination_location_id ??
+                                          "",
                                       },
                                     }))
                                   }
                                   className="border border-border rounded-md px-2 py-1 w-20 bg-background text-foreground focus:outline-none focus:border-accent"
                                 />
+                                {locations.filter((location) => location.active).length > 1 && (
+                                  <select
+                                    value={draft?.locationId ?? order.destination_location_id ?? ""}
+                                    onChange={(event) =>
+                                      setReceiptDrafts((current) => ({
+                                        ...current,
+                                        [line.id]: {
+                                          quantity: current[line.id]?.quantity ?? "",
+                                          note: current[line.id]?.note ?? "",
+                                          locationId: event.target.value,
+                                        },
+                                      }))
+                                    }
+                                    className="border border-border rounded-md px-2 py-1 text-xs bg-background text-foreground focus:outline-none focus:border-accent"
+                                  >
+                                    <option value="" disabled>
+                                      Lieu
+                                    </option>
+                                    {locations
+                                      .filter((location) => location.active)
+                                      .map((location) => (
+                                        <option key={location.id} value={location.id}>
+                                          {location.name}
+                                        </option>
+                                      ))}
+                                  </select>
+                                )}
                                 <button
                                   type="button"
                                   onClick={() => void receiveLine(line.id)}
@@ -2305,6 +2987,29 @@ export default function Home() {
               className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
             />
           </label>
+
+          {locations.filter((location) => location.active).length > 1 && (
+            <label className="flex flex-col gap-1 text-sm">
+              Lieu de production
+              <select
+                required
+                value={productionLocationId}
+                onChange={(event) => setProductionLocationId(event.target.value)}
+                className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground focus:outline-none focus:border-accent"
+              >
+                <option value="" disabled>
+                  Sélectionner un lieu
+                </option>
+                {locations
+                  .filter((location) => location.active)
+                  .map((location) => (
+                    <option key={location.id} value={location.id}>
+                      {location.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          )}
 
           <label className="flex flex-col gap-1 text-sm">
             Note (optionnel)
@@ -2397,6 +3102,28 @@ export default function Home() {
                         className="border border-border rounded-md px-2 py-1 text-xs bg-background text-foreground focus:outline-none focus:border-accent"
                       />
                     </label>
+                    {locations.filter((location) => location.active).length > 1 && (
+                      <label className="flex items-center gap-2 text-xs text-muted">
+                        Lieu
+                        <select
+                          value={order.location_id ?? ""}
+                          onChange={(event) =>
+                            void updateProductionOrder(order.id, {
+                              location_id: event.target.value || null,
+                            })
+                          }
+                          className="border border-border rounded-md px-2 py-1 text-xs bg-background text-foreground focus:outline-none focus:border-accent"
+                        >
+                          {locations
+                            .filter((location) => location.active)
+                            .map((location) => (
+                              <option key={location.id} value={location.id}>
+                                {location.name}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <button
@@ -2425,6 +3152,7 @@ export default function Home() {
                     <p className="text-xs text-muted">
                       Disponibilité des intrants à la date prévue
                       {!order.planned_at && " (aucune date définie — calcul à partir d'aujourd'hui)"}
+                      {!order.location_id && " — aucun lieu de production défini"}
                     </p>
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm border-collapse">
@@ -2433,13 +3161,14 @@ export default function Home() {
                             <th className="px-2 py-1 min-w-[140px]">Intrant</th>
                             <th className="px-2 py-1 text-right min-w-[72px]">Besoin</th>
                             <th className="px-2 py-1 text-right min-w-[96px] whitespace-nowrap">
-                              Disponible à date
+                              Sur site à date
+                            </th>
+                            <th className="px-2 py-1 min-w-[120px] whitespace-nowrap">Ailleurs</th>
+                            <th className="px-2 py-1 text-right min-w-[100px] whitespace-nowrap">
+                              Arrivées à temps
                             </th>
                             <th className="px-2 py-1 text-right min-w-[80px]">Manquant</th>
-                            <th className="px-2 py-1 min-w-[110px] whitespace-nowrap">
-                              Prochaine arrivée
-                            </th>
-                            <th className="px-2 py-1 min-w-[130px] whitespace-nowrap">Statut</th>
+                            <th className="px-2 py-1 min-w-[160px] whitespace-nowrap">Action</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -2450,24 +3179,36 @@ export default function Home() {
                                 {quantity(line.required)}
                               </td>
                               <td className="px-2 py-1 text-right whitespace-nowrap">
-                                {quantity(line.availableAtDate)}
+                                {quantity(line.onSite)}
+                              </td>
+                              <td className="px-2 py-1 whitespace-nowrap">
+                                {line.elsewhere.length > 0
+                                  ? line.elsewhere
+                                      .map((entry) => `${quantity(entry.quantity)} à ${entry.locationName}`)
+                                      .join(", ")
+                                  : "—"}
+                              </td>
+                              <td className="px-2 py-1 text-right whitespace-nowrap">
+                                {line.incoming > 0 ? quantity(line.incoming) : "—"}
                               </td>
                               <td className="px-2 py-1 text-right whitespace-nowrap">
                                 {line.missing > 0 ? quantity(line.missing) : "—"}
                               </td>
-                              <td className="px-2 py-1 whitespace-nowrap">
-                                {line.nextArrival ?? "Aucune"}
-                              </td>
                               <td
-                                className={
-                                  line.status === "ok"
-                                    ? "px-2 py-1 whitespace-nowrap"
-                                    : line.status === "too_late"
-                                      ? "px-2 py-1 whitespace-nowrap text-orange-600"
-                                      : "px-2 py-1 whitespace-nowrap text-red-600"
-                                }
+                                className={`px-2 py-1 whitespace-nowrap ${availabilityActionClass(line.status)}`}
                               >
-                                {availabilityStatusLabel(line.status)}
+                                <div className="flex items-center gap-2">
+                                  <span>{availabilityActionLabel(line)}</span>
+                                  {line.status === "a_transferer" && (
+                                    <button
+                                      type="button"
+                                      onClick={() => openTransferDraft(order, line)}
+                                      className="text-xs underline shrink-0"
+                                    >
+                                      Créer un transfert
+                                    </button>
+                                  )}
+                                </div>
                               </td>
                             </tr>
                           ))}
@@ -2539,6 +3280,188 @@ export default function Home() {
               </div>
             );
           })}
+        </div>
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            id="transfers"
+            title="Transferts"
+            defaultOpen={false}
+            forceOpen={forceOpenTransfers}
+          >
+        <form
+          onSubmit={addTransfer}
+          className="flex flex-col gap-3 border border-border rounded-lg p-4 max-w-md bg-background"
+        >
+          <label className="flex flex-col gap-1 text-sm">
+            Référence
+            <select
+              required
+              value={transferItemId}
+              onChange={(event) => setTransferItemId(event.target.value)}
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground focus:outline-none focus:border-accent"
+            >
+              <option value="" disabled>
+                Sélectionner une référence
+              </option>
+              {items.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.sku} — {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm">
+            Lieu source
+            <select
+              required
+              value={transferSourceLocationId}
+              onChange={(event) => setTransferSourceLocationId(event.target.value)}
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground focus:outline-none focus:border-accent"
+            >
+              <option value="" disabled>
+                Sélectionner un lieu
+              </option>
+              {locations
+                .filter((location) => location.active)
+                .map((location) => (
+                  <option key={location.id} value={location.id}>
+                    {location.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm">
+            Lieu de destination
+            <select
+              required
+              value={transferDestinationLocationId}
+              onChange={(event) => setTransferDestinationLocationId(event.target.value)}
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground focus:outline-none focus:border-accent"
+            >
+              <option value="" disabled>
+                Sélectionner un lieu
+              </option>
+              {locations
+                .filter((location) => location.active && location.id !== transferSourceLocationId)
+                .map((location) => (
+                  <option key={location.id} value={location.id}>
+                    {location.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm">
+            Quantité
+            <input
+              type="number"
+              required
+              min="0.01"
+              step="0.01"
+              value={transferQuantity}
+              onChange={(event) => setTransferQuantity(event.target.value)}
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm">
+            Date prévue
+            <input
+              type="date"
+              value={transferPlannedAt}
+              onChange={(event) => setTransferPlannedAt(event.target.value)}
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
+            />
+          </label>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="rounded-md bg-accent text-white px-3 py-2 font-medium transition-colors hover:bg-accent-dark disabled:opacity-50 disabled:hover:bg-accent"
+          >
+            Créer le transfert
+          </button>
+        </form>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="font-medium text-sm">Transferts ouverts</h3>
+
+          {transfers.length === 0 && (
+            <p className="text-sm text-muted">Aucun transfert en cours.</p>
+          )}
+
+          <div className="overflow-x-auto border border-border rounded-lg">
+            <table className="w-full text-sm">
+              <thead className="bg-background border-b-2 border-border">
+                <tr className="text-left text-muted">
+                  <th className="px-2 py-1">Référence</th>
+                  <th className="px-2 py-1">De</th>
+                  <th className="px-2 py-1">Vers</th>
+                  <th className="px-2 py-1 text-right">Quantité</th>
+                  <th className="px-2 py-1">Date prévue</th>
+                  <th className="px-2 py-1">Statut</th>
+                  <th className="px-2 py-1"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {transfers.map((transfer) => {
+                  const sourceName =
+                    locations.find((location) => location.id === transfer.source_location_id)
+                      ?.name ?? transfer.source_location_id;
+                  const destinationName =
+                    locations.find(
+                      (location) => location.id === transfer.destination_location_id,
+                    )?.name ?? transfer.destination_location_id;
+
+                  return (
+                    <tr key={transfer.id} className="border-t border-border">
+                      <td className="px-2 py-1">
+                        {transfer.items.sku} — {transfer.items.name}
+                      </td>
+                      <td className="px-2 py-1">{sourceName}</td>
+                      <td className="px-2 py-1">{destinationName}</td>
+                      <td className="px-2 py-1 text-right">{quantity(transfer.quantity)}</td>
+                      <td className="px-2 py-1">{transfer.planned_at ?? "—"}</td>
+                      <td className="px-2 py-1">{stockTransferStatusLabel(transfer.status)}</td>
+                      <td className="px-2 py-1">
+                        <div className="flex gap-2">
+                          {transfer.status === "planned" && (
+                            <button
+                              type="button"
+                              onClick={() => void departTransfer(transfer.id)}
+                              disabled={loading}
+                              className="rounded-md border border-border px-2 py-1 text-xs transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
+                            >
+                              Marquer en transit
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => void receiveTransfer(transfer.id)}
+                            disabled={loading}
+                            className="rounded-md border border-border px-2 py-1 text-xs transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
+                          >
+                            Marquer reçu
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void cancelTransfer(transfer.id)}
+                            disabled={loading}
+                            className="rounded-md border border-red-300 px-2 py-1 text-xs text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50"
+                          >
+                            Annuler
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
           </CollapsibleSection>
         </div>
