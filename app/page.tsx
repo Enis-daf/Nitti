@@ -262,7 +262,7 @@ function StockTable({
   return (
     <div className="border border-border rounded-lg overflow-hidden">
       <table className="w-full text-sm table-fixed">
-        <thead className="bg-background border-b-2 border-border">
+        <thead className="bg-surface-header border-b-2 border-border">
           <tr className="text-left">
             <th className="px-2 py-2 font-semibold overflow-hidden w-[15%]">SKU</th>
             <th className="px-2 py-2 font-semibold overflow-hidden w-[23%]">Nom</th>
@@ -380,21 +380,23 @@ function CollapsibleSection({
   }, [id, open]);
 
   return (
-    <section className="border border-border rounded-lg bg-background">
+    <section className="border border-border rounded-lg bg-background shadow-sm overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className="w-full flex items-center justify-between px-4 py-3 text-left rounded-lg transition-colors hover:bg-black/[0.02]"
+        className={`w-full flex items-center justify-between px-4 py-3.5 text-left transition-colors bg-surface-header hover:bg-[#eef3f8] ${
+          open ? "border-b border-border" : ""
+        }`}
       >
-        <h2 className="font-medium">{title}</h2>
+        <h2 className="font-semibold text-foreground">{title}</h2>
         <span
-          className={`text-muted text-sm transition-transform ${open ? "rotate-180" : ""}`}
+          className={`text-foreground text-base transition-transform ${open ? "rotate-180" : ""}`}
           aria-hidden="true"
         >
           ▾
         </span>
       </button>
-      {open && <div className="px-4 pb-4 flex flex-col gap-4">{children}</div>}
+      {open && <div className="px-4 py-4 flex flex-col gap-4 bg-background">{children}</div>}
     </section>
   );
 }
@@ -1961,7 +1963,7 @@ export default function Home() {
   }
 
   return (
-    <main className="flex-1 flex flex-col gap-8 px-6 py-8 md:px-10 max-w-[1800px] mx-auto w-full">
+    <main className="flex-1 flex flex-col gap-8 px-6 py-8 md:px-10 max-w-[1800px] mx-auto w-full bg-app-bg">
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">{organization?.name}</h1>
@@ -1979,17 +1981,19 @@ export default function Home() {
       {message && <p className="text-sm text-red-600">{message}</p>}
 
       <div className="flex flex-col lg:flex-row gap-6 items-start">
-        <aside className="w-full lg:w-[55%] lg:shrink-0 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto flex flex-col gap-5 border border-border rounded-lg p-5 bg-background">
+        <aside className="w-full lg:w-[55%] lg:shrink-0 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto flex flex-col gap-5 border border-border rounded-lg p-6 bg-background shadow-sm">
           <div>
-            <h2 className="font-medium">Dashboard & alertes</h2>
+            <h2 className="text-lg font-semibold text-foreground">Dashboard & alertes</h2>
             <div className="flex gap-8 mt-3 text-sm">
               <div>
                 <p className="text-muted text-xs">Références</p>
-                <p className="text-2xl font-semibold">{dashboard.length}</p>
+                <p className="text-3xl font-semibold text-foreground">{dashboard.length}</p>
               </div>
               <div>
                 <p className="text-muted text-xs">Alertes</p>
-                <p className={`text-2xl font-semibold ${alertCount > 0 ? "text-accent" : ""}`}>
+                <p
+                  className={`text-3xl font-semibold ${alertCount > 0 ? "text-accent" : "text-foreground"}`}
+                >
                   {alertCount}
                 </p>
               </div>
@@ -2003,7 +2007,9 @@ export default function Home() {
                 {locationAlerts.map((alert) => (
                   <div
                     key={alert.key}
-                    className="flex flex-col gap-0.5 rounded-md bg-surface-pink px-3 py-2 text-sm"
+                    className={`flex flex-col gap-0.5 rounded-md bg-surface-pink px-3 py-2 text-sm ${
+                      alert.status !== "low_physical_stock" ? "border-l-2 border-accent" : ""
+                    }`}
                   >
                     <div className="flex items-center justify-between gap-3">
                       <span className="truncate min-w-0">
@@ -2021,8 +2027,8 @@ export default function Home() {
           )}
 
         <div>
-          <p className="text-sm font-medium text-foreground mb-2">
-            Produits finis ({finishedGoodRows.length})
+          <p className="text-base font-semibold text-foreground mt-2 mb-2">
+            Produits finis <span className="text-muted font-normal">({finishedGoodRows.length})</span>
           </p>
           <StockTable
             rows={finishedGoodRows}
@@ -2036,8 +2042,8 @@ export default function Home() {
         </div>
 
         <div>
-          <p className="text-sm font-medium text-foreground mb-2">
-            Intrants ({inputRows.length})
+          <p className="text-base font-semibold text-foreground mt-2 mb-2">
+            Intrants <span className="text-muted font-normal">({inputRows.length})</span>
           </p>
           <StockTable
             rows={inputRows}
@@ -2171,7 +2177,7 @@ export default function Home() {
 
         <div className="overflow-x-auto border border-border rounded-lg">
           <table className="w-full text-sm">
-            <thead className="bg-background border-b-2 border-border">
+            <thead className="bg-surface-header border-b-2 border-border">
               <tr className="text-left">
                 <th className="px-3 py-2 font-semibold">Nom</th>
                 <th className="px-3 py-2 font-semibold">Note</th>
@@ -2402,7 +2408,7 @@ export default function Home() {
 
         <div className="overflow-x-auto border border-border rounded-lg">
           <table className="w-full text-sm">
-            <thead className="bg-background border-b-2 border-border">
+            <thead className="bg-surface-header border-b-2 border-border">
               <tr className="text-left">
                 <th className="px-3 py-2 font-semibold">Référence produite</th>
                 <th className="px-3 py-2 font-semibold">Intrant</th>
@@ -3493,7 +3499,7 @@ export default function Home() {
 
           <div className="overflow-x-auto border border-border rounded-lg">
             <table className="w-full text-sm">
-              <thead className="bg-background border-b-2 border-border">
+              <thead className="bg-surface-header border-b-2 border-border">
                 <tr className="text-left text-muted">
                   <th className="px-2 py-1">Référence</th>
                   <th className="px-2 py-1">De</th>

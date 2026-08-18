@@ -9,6 +9,8 @@
   --accent-dark: #c10068;
   --surface-mint: #dcfff5;
   --surface-pink: #ffdff0;
+  --app-bg: #f4f8fb;
+  --surface-header: #f8fafc;
 }
 
 @theme inline {
@@ -20,6 +22,8 @@
   --color-accent-dark: var(--accent-dark);
   --color-surface-mint: var(--surface-mint);
   --color-surface-pink: var(--surface-pink);
+  --color-app-bg: var(--app-bg);
+  --color-surface-header: var(--surface-header);
   --font-sans: var(--font-lexend);
 }
 
