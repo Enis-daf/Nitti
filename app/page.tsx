@@ -1397,6 +1397,34 @@ export default function Home() {
       .reduce((sum, row) => sum + Number(row.quantity_physical ?? 0), 0);
   }
 
+  // alert_status on stock_dashboard is computed globally (physical/ordered/reserved
+  // summed across all locations), so an alert can only be pinned to a single
+  // location when the item's non-zero physical stock genuinely sits in exactly
+  // one place. Otherwise, per product decision, never guess — surface that the
+  // alert isn't (yet) location-resolvable instead of inventing a location.
+  function alertLocationLabel(itemId: string): string {
+    if (locations.length === 0) return "";
+
+    const nonZeroLocationIds = Array.from(
+      new Set(
+        stockPhysical
+          .filter(
+            (row) =>
+              row.item_id === itemId &&
+              row.location_id !== null &&
+              Number(row.quantity_physical ?? 0) !== 0,
+          )
+          .map((row) => row.location_id as string),
+      ),
+    );
+
+    if (nonZeroLocationIds.length === 0) return "Lieu non déterminé";
+    if (nonZeroLocationIds.length > 1) return "Plusieurs lieux";
+
+    const location = locations.find((candidate) => candidate.id === nonZeroLocationIds[0]);
+    return location?.name ?? "Lieu non déterminé";
+  }
+
   function computeAvailabilityAtDate(order: ProductionOrder): IntrantAvailability[] {
     const targetDate = order.planned_at || todayISO();
     const orderLocationId = order.location_id;
@@ -1915,7 +1943,14 @@ export default function Home() {
                       <span className="truncate min-w-0">
                         {row.sku} — {row.name}
                       </span>
-                      <AlertBadge status={row.alert_status} />
+                      <div className="flex items-center gap-2 shrink-0">
+                        {alertLocationLabel(row.item_id) && (
+                          <span className="text-xs text-muted whitespace-nowrap">
+                            {alertLocationLabel(row.item_id)}
+                          </span>
+                        )}
+                        <AlertBadge status={row.alert_status} />
+                      </div>
                     </div>
                   ))}
               </div>
