@@ -1904,6 +1904,22 @@ export default function Home() {
       lines: bomLines.filter((line) => line.product_item_id === producedItemId),
     }))
     .sort((a, b) => (a.producedItem?.name ?? "").localeCompare(b.producedItem?.name ?? ""));
+  // A brand-new recipe (selected via "Nouvelle nomenclature" but with zero
+  // bom_lines rows yet) has no entry in bomRecipes — without this, opening it
+  // sets openBomProductId but there is no card to render it into, so nothing
+  // visibly happens. Append a synthetic empty-lines entry for it so its card
+  // renders immediately, ready for the first "+ Ajouter un intrant".
+  const visibleBomRecipes =
+    openBomProductId && !bomProducedItemIds.has(openBomProductId)
+      ? [
+          ...bomRecipes,
+          {
+            producedItemId: openBomProductId,
+            producedItem: items.find((item) => item.id === openBomProductId),
+            lines: [] as BomLine[],
+          },
+        ]
+      : bomRecipes;
 
   if (loading) {
     return (
@@ -2431,11 +2447,11 @@ export default function Home() {
         </div>
 
         <div className="flex flex-col gap-2">
-          {bomRecipes.length === 0 && (
+          {visibleBomRecipes.length === 0 && (
             <p className="text-sm text-muted">Aucune nomenclature pour le moment.</p>
           )}
 
-          {bomRecipes.map(({ producedItemId, producedItem, lines }) => {
+          {visibleBomRecipes.map(({ producedItemId, producedItem, lines }) => {
             const isOpen = openBomProductId === producedItemId;
             const label = producedItem
               ? `${producedItem.sku} — ${producedItem.name}`
