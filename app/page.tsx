@@ -2138,7 +2138,15 @@ export default function Home() {
   }
 
   const locationAlerts = computeLocationAlerts();
-  const alertCount = locationAlerts.length;
+  // Every entry in locationAlerts is already a non-ok situation (local
+  // rupture, needs-transfer, or the global fallback) — a reference counts as
+  // needing action if it has at least one such entry anywhere, even if only
+  // at a single location while another location is fine. Count distinct
+  // references, not entries, so a reference in trouble at two locations
+  // isn't double-counted against the total.
+  const alertingItemIds = new Set(locationAlerts.map((alert) => alert.itemId));
+  const alertCount = alertingItemIds.size;
+  const okReferencesCount = dashboard.length - alertCount;
   const productItems = items.filter((item) => item.item_type === "product");
   const componentItems = items.filter((item) => item.item_type === "component");
 
@@ -2353,6 +2361,16 @@ export default function Home() {
                 <p className="text-3xl font-semibold text-[#fffefa]">{alertCount}</p>
               </div>
             </div>
+
+            <p className="mt-2 text-xs text-muted flex items-center gap-1.5 flex-wrap">
+              <span className="inline-flex items-center rounded-full bg-surface-mint text-[#030a16] px-2 py-0.5 font-medium">
+                {okReferencesCount} référence{okReferencesCount > 1 ? "s" : ""} OK
+              </span>
+              <span>·</span>
+              <span className="inline-flex items-center rounded-full bg-accent text-[#fffefa] px-2 py-0.5 font-medium">
+                {alertCount} nécessite{alertCount > 1 ? "nt" : ""} une action
+              </span>
+            </p>
           </div>
 
           {alertCount > 0 && (
