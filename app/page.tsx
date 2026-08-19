@@ -35,6 +35,12 @@ type StockPhysicalRow = {
   quantity_physical: number | string;
 };
 
+type ItemLocationThreshold = {
+  item_id: string;
+  location_id: string;
+  minimum_stock: number | string;
+};
+
 type StockTransferStatus = "planned" | "in_transit" | "received" | "cancelled";
 
 type StockTransfer = {
@@ -274,18 +280,22 @@ function StockTable({
   rows,
   locations,
   stockPhysical,
+  itemLocationThresholds,
   bomProducedItemIds,
   expandedItemId,
   onToggleExpand,
   onViewBom,
+  onUpdateThreshold,
 }: {
   rows: DashboardRow[];
   locations: Location[];
   stockPhysical: StockPhysicalRow[];
+  itemLocationThresholds: ItemLocationThreshold[];
   bomProducedItemIds: Set<string>;
   expandedItemId: string | null;
   onToggleExpand: (itemId: string) => void;
   onViewBom: (itemId: string) => void;
+  onUpdateThreshold: (itemId: string, locationId: string, minimumStock: number) => void;
 }) {
   const activeLocations = locations.filter((location) => location.active);
   const showLocationDetail = activeLocations.length > 1;
@@ -318,8 +328,13 @@ function StockTable({
             const canExpand = showLocationDetail || hasBom;
             const isExpanded = canExpand && expandedItemId === row.item_id;
             const detailRows = isExpanded
-              ? activeLocations
-                  .map((location) => ({
+              ? activeLocations.map((location) => {
+                  const override = itemLocationThresholds.find(
+                    (threshold) =>
+                      threshold.item_id === row.item_id && threshold.location_id === location.id,
+                  );
+
+                  return {
                     location,
                     qty: stockPhysical
                       .filter(
@@ -328,8 +343,11 @@ function StockTable({
                           physical.location_id === location.id,
                       )
                       .reduce((sum, physical) => sum + Number(physical.quantity_physical ?? 0), 0),
-                  }))
-                  .filter((entry) => entry.qty !== 0)
+                    minimum: override
+                      ? Number(override.minimum_stock)
+                      : Number(row.low_stock_threshold ?? 0),
+                  };
+                })
               : [];
 
             return [
@@ -355,25 +373,47 @@ function StockTable({
               isExpanded && (
                 <tr key={`${row.item_id}-detail`} className="bg-background">
                   <td colSpan={7} className="px-4 py-2">
-                    <div className="flex flex-col gap-1 text-xs text-muted">
-                      {showLocationDetail && detailRows.length === 0 && (
-                        <span>Aucun stock localisé.</span>
+                    <div className="flex flex-col gap-2 text-xs" onClick={(event) => event.stopPropagation()}>
+                      {showLocationDetail && (
+                        <table className="w-full">
+                          <thead>
+                            <tr className="text-left text-muted">
+                              <th className="py-1 font-medium">Lieu</th>
+                              <th className="py-1 font-medium text-right">Stock</th>
+                              <th className="py-1 font-medium text-right">Stock minimum</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {detailRows.map(({ location, qty, minimum }) => (
+                              <tr key={location.id} className="border-t border-border">
+                                <td className="py-1">{location.name}</td>
+                                <td className="py-1 text-right">{quantity(qty)}</td>
+                                <td className="py-1 text-right">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    defaultValue={minimum}
+                                    onBlur={(event) =>
+                                      onUpdateThreshold(
+                                        row.item_id,
+                                        location.id,
+                                        Number(event.target.value),
+                                      )
+                                    }
+                                    className="border border-border rounded-md px-2 py-1 w-20 text-right bg-background text-foreground focus:outline-none focus:border-accent"
+                                  />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       )}
-                      {showLocationDetail &&
-                        detailRows.map(({ location, qty }) => (
-                          <div key={location.id} className="flex justify-between gap-4">
-                            <span>{location.name}</span>
-                            <span>{quantity(qty)}</span>
-                          </div>
-                        ))}
                       {hasBom && (
                         <button
                           type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onViewBom(row.item_id);
-                          }}
-                          className="text-left underline w-fit"
+                          onClick={() => onViewBom(row.item_id)}
+                          className="text-left underline w-fit text-muted"
                         >
                           Voir la recette →
                         </button>
@@ -465,6 +505,9 @@ export default function Home() {
 
   const [locations, setLocations] = useState<Location[]>([]);
   const [stockPhysical, setStockPhysical] = useState<StockPhysicalRow[]>([]);
+  const [itemLocationThresholds, setItemLocationThresholds] = useState<ItemLocationThreshold[]>(
+    [],
+  );
   const [locationName, setLocationName] = useState("");
   const [locationNote, setLocationNote] = useState("");
   const [expandedStockItemId, setExpandedStockItemId] = useState<string | null>(null);
@@ -576,7 +619,7 @@ export default function Home() {
   }, []);
 
   const loadLocationData = useCallback(async (organizationId: string) => {
-    const [locationsResult, stockPhysicalResult] = await Promise.all([
+    const [locationsResult, stockPhysicalResult, thresholdsResult] = await Promise.all([
       supabase
         .from("locations")
         .select("id, name, active, note")
@@ -585,6 +628,10 @@ export default function Home() {
       supabase
         .from("stock_physical")
         .select("item_id, location_id, quantity_physical")
+        .eq("organization_id", organizationId),
+      supabase
+        .from("item_location_thresholds")
+        .select("item_id, location_id, minimum_stock")
         .eq("organization_id", organizationId),
     ]);
 
@@ -598,6 +645,12 @@ export default function Home() {
       setMessage(stockPhysicalResult.error.message);
     } else {
       setStockPhysical((stockPhysicalResult.data ?? []) as StockPhysicalRow[]);
+    }
+
+    if (thresholdsResult.error) {
+      setMessage(thresholdsResult.error.message);
+    } else {
+      setItemLocationThresholds((thresholdsResult.data ?? []) as ItemLocationThreshold[]);
     }
   }, []);
 
@@ -812,6 +865,7 @@ export default function Home() {
         setItems([]);
         setLocations([]);
         setStockPhysical([]);
+        setItemLocationThresholds([]);
         setSuppliers([]);
         setSupplierOrders([]);
         setBomLines([]);
@@ -955,6 +1009,35 @@ export default function Home() {
     if (!organization) return;
 
     const { error } = await supabase.from("locations").update(patch).eq("id", locationId);
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      await loadLocationData(organization.id);
+    }
+  }
+
+  async function updateItemLocationThreshold(
+    itemId: string,
+    locationId: string,
+    minimumStock: number,
+  ) {
+    if (!organization) return;
+
+    if (!(minimumStock >= 0)) {
+      setMessage("Le stock minimum doit être positif ou nul.");
+      return;
+    }
+
+    const { error } = await supabase.from("item_location_thresholds").upsert(
+      {
+        organization_id: organization.id,
+        item_id: itemId,
+        location_id: locationId,
+        minimum_stock: minimumStock,
+      },
+      { onConflict: "organization_id,item_id,location_id" },
+    );
 
     if (error) {
       setMessage(error.message);
@@ -1692,6 +1775,17 @@ export default function Home() {
       .reduce((sum, row) => sum + Number(row.quantity_physical ?? 0), 0);
   }
 
+  // A per-(item, location) minimum overrides items.low_stock_threshold for
+  // that one location when it's been explicitly set; otherwise the item's
+  // existing global default still applies, so locations nobody has
+  // configured yet keep behaving exactly as before this feature.
+  function minimumStockAt(itemId: string, locationId: string, fallback: number): number {
+    const override = itemLocationThresholds.find(
+      (threshold) => threshold.item_id === itemId && threshold.location_id === locationId,
+    );
+    return override ? Number(override.minimum_stock) : fallback;
+  }
+
   function elsewhereStock(itemId: string, excludeLocationId: string | null): ElsewhereStock[] {
     const elsewhereMap = new Map<string, number>();
     for (const row of stockPhysical) {
@@ -1746,7 +1840,11 @@ export default function Home() {
 
       for (const locationId of itemLocationIds) {
         const localPhysical = physicalAt(row.item_id, locationId);
-        const threshold = Number(row.low_stock_threshold ?? 0);
+        const threshold = minimumStockAt(
+          row.item_id,
+          locationId,
+          Number(row.low_stock_threshold ?? 0),
+        );
 
         let status: "missing_physical_stock" | "low_physical_stock" | null = null;
         if (localPhysical < 0) status = "missing_physical_stock";
@@ -2407,12 +2505,16 @@ export default function Home() {
             rows={finishedGoodRows}
             locations={locations}
             stockPhysical={stockPhysical}
+            itemLocationThresholds={itemLocationThresholds}
             bomProducedItemIds={bomProducedItemIds}
             expandedItemId={expandedStockItemId}
             onToggleExpand={(itemId) =>
               setExpandedStockItemId((current) => (current === itemId ? null : itemId))
             }
             onViewBom={viewBomRecipe}
+            onUpdateThreshold={(itemId, locationId, minimumStock) =>
+              void updateItemLocationThreshold(itemId, locationId, minimumStock)
+            }
           />
         </div>
 
@@ -2424,12 +2526,16 @@ export default function Home() {
             rows={inputRows}
             locations={locations}
             stockPhysical={stockPhysical}
+            itemLocationThresholds={itemLocationThresholds}
             bomProducedItemIds={bomProducedItemIds}
             expandedItemId={expandedStockItemId}
             onToggleExpand={(itemId) =>
               setExpandedStockItemId((current) => (current === itemId ? null : itemId))
             }
             onViewBom={viewBomRecipe}
+            onUpdateThreshold={(itemId, locationId, minimumStock) =>
+              void updateItemLocationThreshold(itemId, locationId, minimumStock)
+            }
           />
         </div>
         </aside>
@@ -2477,7 +2583,7 @@ export default function Home() {
           </label>
 
           <label className="flex flex-col gap-1 text-sm">
-            Seuil d'alerte
+            Stock minimum (par défaut)
             <input
               type="number"
               min="0"
