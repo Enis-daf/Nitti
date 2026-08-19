@@ -3115,43 +3115,54 @@ export default function Home() {
             <div className="flex flex-col gap-2">
               <p className="text-sm">Lignes</p>
               {orderLines.map((line, index) => (
-                <div key={index} className="flex gap-2">
-                  <select
-                    required
-                    value={line.itemId}
-                    onChange={(event) =>
-                      updateOrderLine(index, { itemId: event.target.value })
-                    }
-                    className="border border-border rounded-md px-3 py-1.5 flex-1 bg-background text-foreground focus:outline-none focus:border-accent"
-                  >
-                    <option value="" disabled>
-                      Article
-                    </option>
-                    {items.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.sku} — {item.name}
+                <div
+                  key={index}
+                  className="flex flex-col gap-2 border border-border rounded-lg p-3"
+                >
+                  <label className="flex flex-col gap-1 text-sm">
+                    Produit
+                    <select
+                      required
+                      value={line.itemId}
+                      onChange={(event) =>
+                        updateOrderLine(index, { itemId: event.target.value })
+                      }
+                      className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground focus:outline-none focus:border-accent"
+                    >
+                      <option value="" disabled>
+                        Article
                       </option>
-                    ))}
-                  </select>
-                  <input
-                    type="number"
-                    required
-                    min="0"
-                    step="0.01"
-                    placeholder="Qté"
-                    value={line.quantity}
-                    onChange={(event) =>
-                      updateOrderLine(index, { quantity: event.target.value })
-                    }
-                    className="border border-border rounded-md px-3 py-1.5 w-24 bg-background text-foreground focus:outline-none focus:border-accent"
-                  />
+                      {items.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.sku} — {item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="flex flex-col gap-1 text-sm">
+                    Quantité
+                    <input
+                      type="number"
+                      required
+                      min="0"
+                      step="0.01"
+                      placeholder="Qté"
+                      value={line.quantity}
+                      onChange={(event) =>
+                        updateOrderLine(index, { quantity: event.target.value })
+                      }
+                      className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground focus:outline-none focus:border-accent"
+                    />
+                  </label>
+
                   {orderLines.length > 1 && (
                     <button
                       type="button"
                       onClick={() => removeOrderLine(index)}
-                      className="text-sm text-red-600 hover:text-red-700 px-2"
+                      className="text-sm text-red-600 hover:text-red-700 text-left w-fit"
                     >
-                      ✕
+                      Supprimer la ligne
                     </button>
                   )}
                 </div>
