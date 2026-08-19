@@ -247,14 +247,18 @@ function StockTable({
   rows,
   locations,
   stockPhysical,
+  bomProducedItemIds,
   expandedItemId,
   onToggleExpand,
+  onViewBom,
 }: {
   rows: DashboardRow[];
   locations: Location[];
   stockPhysical: StockPhysicalRow[];
+  bomProducedItemIds: Set<string>;
   expandedItemId: string | null;
   onToggleExpand: (itemId: string) => void;
+  onViewBom: (itemId: string) => void;
 }) {
   const activeLocations = locations.filter((location) => location.active);
   const showLocationDetail = activeLocations.length > 1;
@@ -283,7 +287,9 @@ function StockTable({
         </thead>
         <tbody>
           {rows.map((row) => {
-            const isExpanded = showLocationDetail && expandedItemId === row.item_id;
+            const hasBom = bomProducedItemIds.has(row.item_id);
+            const canExpand = showLocationDetail || hasBom;
+            const isExpanded = canExpand && expandedItemId === row.item_id;
             const detailRows = isExpanded
               ? activeLocations
                   .map((location) => ({
@@ -302,8 +308,8 @@ function StockTable({
             return [
               <tr
                 key={row.item_id}
-                className={`border-t border-border ${showLocationDetail ? "cursor-pointer hover:bg-black/[0.02]" : ""}`}
-                onClick={showLocationDetail ? () => onToggleExpand(row.item_id) : undefined}
+                className={`border-t border-border ${canExpand ? "cursor-pointer hover:bg-black/[0.02]" : ""}`}
+                onClick={canExpand ? () => onToggleExpand(row.item_id) : undefined}
               >
                 <td className="px-2 py-2 overflow-hidden text-ellipsis whitespace-nowrap">
                   {row.sku}
@@ -323,13 +329,28 @@ function StockTable({
                 <tr key={`${row.item_id}-detail`} className="bg-background">
                   <td colSpan={7} className="px-4 py-2">
                     <div className="flex flex-col gap-1 text-xs text-muted">
-                      {detailRows.length === 0 && <span>Aucun stock localisé.</span>}
-                      {detailRows.map(({ location, qty }) => (
-                        <div key={location.id} className="flex justify-between gap-4">
-                          <span>{location.name}</span>
-                          <span>{quantity(qty)}</span>
-                        </div>
-                      ))}
+                      {showLocationDetail && detailRows.length === 0 && (
+                        <span>Aucun stock localisé.</span>
+                      )}
+                      {showLocationDetail &&
+                        detailRows.map(({ location, qty }) => (
+                          <div key={location.id} className="flex justify-between gap-4">
+                            <span>{location.name}</span>
+                            <span>{quantity(qty)}</span>
+                          </div>
+                        ))}
+                      {hasBom && (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onViewBom(row.item_id);
+                          }}
+                          className="text-left underline w-fit"
+                        >
+                          Voir la recette →
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -453,9 +474,10 @@ export default function Home() {
   >({});
 
   const [bomLines, setBomLines] = useState<BomLine[]>([]);
-  const [bomProducedItemId, setBomProducedItemId] = useState("");
+  const [openBomProductId, setOpenBomProductId] = useState<string | null>(null);
   const [bomInputItemId, setBomInputItemId] = useState("");
   const [bomQuantityPer, setBomQuantityPer] = useState("");
+  const [forceOpenBom, setForceOpenBom] = useState(false);
 
   const [customerOrders, setCustomerOrders] = useState<CustomerOrder[]>([]);
   const [customerName, setCustomerName] = useState("");
@@ -1116,17 +1138,42 @@ export default function Home() {
     }
   }
 
+  function startBomRecipe(producedItemId: string) {
+    setOpenBomProductId(producedItemId);
+    setBomInputItemId("");
+    setBomQuantityPer("");
+  }
+
+  function viewBomRecipe(producedItemId: string) {
+    startBomRecipe(producedItemId);
+    setForceOpenBom(true);
+    window.setTimeout(() => setForceOpenBom(false), 0);
+  }
+
   async function addBomLine(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!organization) return;
+    if (!organization || !openBomProductId) return;
+
+    const isDuplicate = bomLines.some(
+      (line) =>
+        line.product_item_id === openBomProductId &&
+        line.component_item_id === bomInputItemId,
+    );
+
+    if (isDuplicate) {
+      setMessage(
+        "Cet intrant est déjà dans la nomenclature — modifie sa quantité directement dans le tableau plutôt que de l'ajouter à nouveau.",
+      );
+      return;
+    }
 
     setLoading(true);
     setMessage("");
 
     const { error } = await supabase.from("bom_lines").insert({
       organization_id: organization.id,
-      product_item_id: bomProducedItemId,
+      product_item_id: openBomProductId,
       component_item_id: bomInputItemId,
       quantity_per: Number(bomQuantityPer),
     });
@@ -1134,7 +1181,6 @@ export default function Home() {
     if (error) {
       setMessage(error.message);
     } else {
-      setBomProducedItemId("");
       setBomInputItemId("");
       setBomQuantityPer("");
       await loadCustomerData(organization.id);
@@ -1850,6 +1896,15 @@ export default function Home() {
     .filter((row) => row.item_type === "component")
     .sort((a, b) => a.name.localeCompare(b.name));
 
+  const bomProducedItemIds = new Set(bomLines.map((line) => line.product_item_id));
+  const bomRecipes = Array.from(bomProducedItemIds)
+    .map((producedItemId) => ({
+      producedItemId,
+      producedItem: items.find((item) => item.id === producedItemId),
+      lines: bomLines.filter((line) => line.product_item_id === producedItemId),
+    }))
+    .sort((a, b) => (a.producedItem?.name ?? "").localeCompare(b.producedItem?.name ?? ""));
+
   if (loading) {
     return (
       <main className="flex-1 flex items-center justify-center p-8">
@@ -2035,10 +2090,12 @@ export default function Home() {
             rows={finishedGoodRows}
             locations={locations}
             stockPhysical={stockPhysical}
+            bomProducedItemIds={bomProducedItemIds}
             expandedItemId={expandedStockItemId}
             onToggleExpand={(itemId) =>
               setExpandedStockItemId((current) => (current === itemId ? null : itemId))
             }
+            onViewBom={viewBomRecipe}
           />
         </div>
 
@@ -2050,10 +2107,12 @@ export default function Home() {
             rows={inputRows}
             locations={locations}
             stockPhysical={stockPhysical}
+            bomProducedItemIds={bomProducedItemIds}
             expandedItemId={expandedStockItemId}
             onToggleExpand={(itemId) =>
               setExpandedStockItemId((current) => (current === itemId ? null : itemId))
             }
+            onViewBom={viewBomRecipe}
           />
         </div>
         </aside>
@@ -2342,21 +2401,25 @@ export default function Home() {
         </form>
           </CollapsibleSection>
 
-          <CollapsibleSection id="bom" title="Nomenclatures" defaultOpen={false}>
-        <form
-          onSubmit={addBomLine}
-          className="flex flex-col gap-3 border border-border rounded-lg p-4 max-w-md bg-background"
-        >
+          <CollapsibleSection
+            id="bom"
+            title="Nomenclatures"
+            defaultOpen={false}
+            forceOpen={forceOpenBom}
+          >
+        <div className="flex flex-col gap-2 border border-border rounded-lg p-4 max-w-md bg-background">
           <label className="flex flex-col gap-1 text-sm">
-            Référence produite
+            Nouvelle nomenclature
             <select
-              required
-              value={bomProducedItemId}
-              onChange={(event) => setBomProducedItemId(event.target.value)}
-              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
+              defaultValue=""
+              onChange={(event) => {
+                if (event.target.value) startBomRecipe(event.target.value);
+                event.target.value = "";
+              }}
+              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground focus:outline-none focus:border-accent"
             >
               <option value="" disabled>
-                Sélectionner une référence
+                Sélectionner une référence à composer
               </option>
               {items.map((item) => (
                 <option key={item.id} value={item.id}>
@@ -2365,111 +2428,149 @@ export default function Home() {
               ))}
             </select>
           </label>
+        </div>
 
-          <label className="flex flex-col gap-1 text-sm">
-            Intrant
-            <select
-              required
-              value={bomInputItemId}
-              onChange={(event) => setBomInputItemId(event.target.value)}
-              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
-            >
-              <option value="" disabled>
-                Sélectionner un intrant
-              </option>
-              {componentItems.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.sku} — {item.name}
-                </option>
-              ))}
-            </select>
-          </label>
+        <div className="flex flex-col gap-2">
+          {bomRecipes.length === 0 && (
+            <p className="text-sm text-muted">Aucune nomenclature pour le moment.</p>
+          )}
 
-          <label className="flex flex-col gap-1 text-sm">
-            Quantité par référence produite
-            <input
-              type="number"
-              required
-              min="0.01"
-              step="0.01"
-              value={bomQuantityPer}
-              onChange={(event) => setBomQuantityPer(event.target.value)}
-              className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
-            />
-          </label>
+          {bomRecipes.map(({ producedItemId, producedItem, lines }) => {
+            const isOpen = openBomProductId === producedItemId;
+            const label = producedItem
+              ? `${producedItem.sku} — ${producedItem.name}`
+              : producedItemId;
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="rounded-md bg-accent text-white px-3 py-2 font-medium transition-colors hover:bg-accent-dark disabled:opacity-50 disabled:hover:bg-accent"
-          >
-            Ajouter la ligne de nomenclature
-          </button>
-        </form>
+            return (
+              <div
+                key={producedItemId}
+                className="border border-border rounded-lg bg-background overflow-hidden"
+              >
+                <button
+                  type="button"
+                  onClick={() => setOpenBomProductId(isOpen ? null : producedItemId)}
+                  className="w-full flex items-center justify-between px-4 py-3 text-left transition-colors hover:bg-black/[0.02]"
+                >
+                  <span className="font-medium text-foreground">{label}</span>
+                  <span className="text-sm text-muted">
+                    {lines.length} intrant{lines.length > 1 ? "s" : ""} · {isOpen ? "Masquer" : "Voir"}
+                  </span>
+                </button>
 
-        <div className="overflow-x-auto border border-border rounded-lg">
-          <table className="w-full text-sm">
-            <thead className="bg-surface-header border-b-2 border-border">
-              <tr className="text-left">
-                <th className="px-3 py-2 font-semibold">Référence produite</th>
-                <th className="px-3 py-2 font-semibold">Intrant</th>
-                <th className="px-3 py-2 font-semibold text-right">
-                  Quantité par référence produite
-                </th>
-                <th className="px-3 py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {bomLines.map((line) => {
-                const product = items.find((item) => item.id === line.product_item_id);
-                const component = items.find(
-                  (item) => item.id === line.component_item_id,
-                );
+                {isOpen && (
+                  <div className="px-4 pb-4 pt-3 border-t border-border flex flex-col gap-3">
+                    <div>
+                      <p className="text-xs text-muted">Produit fabriqué</p>
+                      <p className="font-medium text-foreground">{label}</p>
+                    </div>
 
-                return (
-                  <tr key={line.id} className="border-t border-border">
-                    <td className="px-3 py-2">
-                      {product ? `${product.sku} — ${product.name}` : line.product_item_id}
-                    </td>
-                    <td className="px-3 py-2">
-                      {component
-                        ? `${component.sku} — ${component.name}`
-                        : line.component_item_id}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      <input
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        defaultValue={line.quantity_per}
-                        onBlur={(event) =>
-                          void updateBomLineQuantity(line.id, Number(event.target.value))
-                        }
-                        className="border border-border rounded-md px-2 py-1 w-20 text-right bg-background text-foreground focus:outline-none focus:border-accent"
-                      />
-                    </td>
-                    <td className="px-3 py-2">
+                    <div className="overflow-x-auto border border-border rounded-lg">
+                      <table className="w-full text-sm">
+                        <thead className="bg-surface-header border-b border-[#030a16]">
+                          <tr className="text-left">
+                            <th className="px-3 py-2 font-semibold">Intrant</th>
+                            <th className="px-3 py-2 font-semibold text-right">Quantité</th>
+                            <th className="px-3 py-2"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {lines.map((line) => {
+                            const component = items.find(
+                              (item) => item.id === line.component_item_id,
+                            );
+
+                            return (
+                              <tr key={line.id} className="border-t border-border">
+                                <td className="px-3 py-2">
+                                  {component
+                                    ? `${component.sku} — ${component.name}`
+                                    : line.component_item_id}
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  <input
+                                    type="number"
+                                    min="0.01"
+                                    step="0.01"
+                                    defaultValue={line.quantity_per}
+                                    onBlur={(event) =>
+                                      void updateBomLineQuantity(
+                                        line.id,
+                                        Number(event.target.value),
+                                      )
+                                    }
+                                    className="border border-border rounded-md px-2 py-1 w-20 text-right bg-background text-foreground focus:outline-none focus:border-accent"
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => void deleteBomLine(line.id)}
+                                    disabled={loading}
+                                    className="text-xs text-red-600 hover:text-red-700 disabled:opacity-50"
+                                  >
+                                    Supprimer
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          {lines.length === 0 && (
+                            <tr>
+                              <td className="px-3 py-4 text-center text-muted" colSpan={3}>
+                                Aucun intrant pour le moment — ajoute le premier ci-dessous.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <p className="text-xs text-muted">Nombre d&apos;intrants : {lines.length}</p>
+
+                    <form onSubmit={addBomLine} className="flex flex-wrap items-end gap-2">
+                      <label className="flex flex-col gap-1 text-sm flex-1 min-w-[160px]">
+                        Intrant
+                        <select
+                          required
+                          value={bomInputItemId}
+                          onChange={(event) => setBomInputItemId(event.target.value)}
+                          className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground focus:outline-none focus:border-accent"
+                        >
+                          <option value="" disabled>
+                            Sélectionner un intrant
+                          </option>
+                          {componentItems.map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.sku} — {item.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="flex flex-col gap-1 text-sm w-24">
+                        Quantité
+                        <input
+                          type="number"
+                          required
+                          min="0.01"
+                          step="0.01"
+                          value={bomQuantityPer}
+                          onChange={(event) => setBomQuantityPer(event.target.value)}
+                          className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground focus:outline-none focus:border-accent"
+                        />
+                      </label>
                       <button
-                        type="button"
-                        onClick={() => void deleteBomLine(line.id)}
+                        type="submit"
                         disabled={loading}
-                        className="text-xs text-red-600 hover:text-red-700 disabled:opacity-50"
+                        className="rounded-md border border-border px-3 py-1.5 text-sm transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
                       >
-                        Supprimer
+                        + Ajouter un intrant
                       </button>
-                    </td>
-                  </tr>
-                );
-              })}
-              {bomLines.length === 0 && (
-                <tr>
-                  <td className="px-3 py-4 text-center text-muted" colSpan={4}>
-                    Aucune nomenclature pour le moment.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                    </form>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
           </CollapsibleSection>
 
