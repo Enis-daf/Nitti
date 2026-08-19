@@ -375,20 +375,22 @@ function StockTable({
                   <td colSpan={7} className="px-4 py-2">
                     <div className="flex flex-col gap-2 text-xs" onClick={(event) => event.stopPropagation()}>
                       {showLocationDetail && (
-                        <table className="w-full">
+                        <table className="w-full max-w-sm table-fixed">
                           <thead>
                             <tr className="text-left text-muted">
                               <th className="py-1 font-medium">Lieu</th>
-                              <th className="py-1 font-medium text-right">Stock</th>
-                              <th className="py-1 font-medium text-right">Stock minimum</th>
+                              <th className="py-1 font-medium text-right w-24">Stock</th>
+                              <th className="py-1 font-medium text-right w-24">Stock minimum</th>
                             </tr>
                           </thead>
                           <tbody>
                             {detailRows.map(({ location, qty, minimum }) => (
                               <tr key={location.id} className="border-t border-border">
-                                <td className="py-1">{location.name}</td>
-                                <td className="py-1 text-right">{quantity(qty)}</td>
-                                <td className="py-1 text-right">
+                                <td className="py-1 overflow-hidden text-ellipsis whitespace-nowrap">
+                                  {location.name}
+                                </td>
+                                <td className="py-1 text-right w-24">{quantity(qty)}</td>
+                                <td className="py-1 text-right w-24">
                                   <input
                                     type="number"
                                     min="0"
