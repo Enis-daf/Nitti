@@ -479,6 +479,14 @@ export default function Home() {
   const [bomQuantityPer, setBomQuantityPer] = useState("");
   const [forceOpenBom, setForceOpenBom] = useState(false);
 
+  const [newBomProductId, setNewBomProductId] = useState("");
+  const [existingBomNoticeId, setExistingBomNoticeId] = useState<string | null>(null);
+  const [newBomDraftLines, setNewBomDraftLines] = useState<
+    { componentItemId: string; quantity: string }[]
+  >([]);
+  const [draftInputItemId, setDraftInputItemId] = useState("");
+  const [draftQuantity, setDraftQuantity] = useState("");
+
   const [customerOrders, setCustomerOrders] = useState<CustomerOrder[]>([]);
   const [customerName, setCustomerName] = useState("");
   const [customerOrderNumber, setCustomerOrderNumber] = useState("");
@@ -1138,16 +1146,117 @@ export default function Home() {
     }
   }
 
-  function startBomRecipe(producedItemId: string) {
+  function viewBomRecipe(producedItemId: string) {
     setOpenBomProductId(producedItemId);
     setBomInputItemId("");
     setBomQuantityPer("");
-  }
-
-  function viewBomRecipe(producedItemId: string) {
-    startBomRecipe(producedItemId);
     setForceOpenBom(true);
     window.setTimeout(() => setForceOpenBom(false), 0);
+  }
+
+  function handleNewBomProductSelect(itemId: string) {
+    if (!itemId) return;
+
+    if (bomProducedItemIds.has(itemId)) {
+      setExistingBomNoticeId(itemId);
+      setNewBomProductId("");
+      setNewBomDraftLines([]);
+    } else {
+      setExistingBomNoticeId(null);
+      setNewBomProductId(itemId);
+      setNewBomDraftLines([]);
+      setDraftInputItemId("");
+      setDraftQuantity("");
+    }
+  }
+
+  function viewExistingBomFromNotice() {
+    if (!existingBomNoticeId) return;
+    setOpenBomProductId(existingBomNoticeId);
+    setExistingBomNoticeId(null);
+  }
+
+  function cancelNewBomDraft() {
+    setNewBomProductId("");
+    setNewBomDraftLines([]);
+    setDraftInputItemId("");
+    setDraftQuantity("");
+    setExistingBomNoticeId(null);
+  }
+
+  function addDraftBomLine() {
+    const quantityValue = Number(draftQuantity);
+
+    if (!draftInputItemId || !quantityValue || quantityValue <= 0) {
+      setMessage("Sélectionne un intrant et une quantité valide.");
+      return;
+    }
+
+    if (newBomDraftLines.some((line) => line.componentItemId === draftInputItemId)) {
+      setMessage(
+        "Cet intrant est déjà dans la recette — modifie sa quantité directement dans le tableau plutôt que de l'ajouter à nouveau.",
+      );
+      return;
+    }
+
+    setNewBomDraftLines((current) => [
+      ...current,
+      { componentItemId: draftInputItemId, quantity: draftQuantity },
+    ]);
+    setDraftInputItemId("");
+    setDraftQuantity("");
+    setMessage("");
+  }
+
+  function updateDraftBomLine(index: number, quantity: string) {
+    setNewBomDraftLines((current) =>
+      current.map((line, lineIndex) => (lineIndex === index ? { ...line, quantity } : line)),
+    );
+  }
+
+  function removeDraftBomLine(index: number) {
+    setNewBomDraftLines((current) => current.filter((_, lineIndex) => lineIndex !== index));
+  }
+
+  async function saveNewBomRecipe() {
+    if (!organization || !newBomProductId) return;
+
+    if (newBomDraftLines.length === 0) {
+      setMessage("Ajoute au moins un intrant avant d'enregistrer la nomenclature.");
+      return;
+    }
+
+    const invalidLine = newBomDraftLines.find(
+      (line) => !line.componentItemId || !(Number(line.quantity) > 0),
+    );
+    if (invalidLine) {
+      setMessage("Chaque intrant doit avoir une quantité positive.");
+      return;
+    }
+
+    setLoading(true);
+    setMessage("");
+
+    const { error } = await supabase.from("bom_lines").insert(
+      newBomDraftLines.map((line) => ({
+        organization_id: organization.id,
+        product_item_id: newBomProductId,
+        component_item_id: line.componentItemId,
+        quantity_per: Number(line.quantity),
+      })),
+    );
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      const savedProductId = newBomProductId;
+      setNewBomProductId("");
+      setNewBomDraftLines([]);
+      await loadCustomerData(organization.id);
+      setOpenBomProductId(savedProductId);
+    }
+
+    setLoading(false);
   }
 
   async function addBomLine(event: FormEvent<HTMLFormElement>) {
@@ -1904,22 +2013,6 @@ export default function Home() {
       lines: bomLines.filter((line) => line.product_item_id === producedItemId),
     }))
     .sort((a, b) => (a.producedItem?.name ?? "").localeCompare(b.producedItem?.name ?? ""));
-  // A brand-new recipe (selected via "Nouvelle nomenclature" but with zero
-  // bom_lines rows yet) has no entry in bomRecipes — without this, opening it
-  // sets openBomProductId but there is no card to render it into, so nothing
-  // visibly happens. Append a synthetic empty-lines entry for it so its card
-  // renders immediately, ready for the first "+ Ajouter un intrant".
-  const visibleBomRecipes =
-    openBomProductId && !bomProducedItemIds.has(openBomProductId)
-      ? [
-          ...bomRecipes,
-          {
-            producedItemId: openBomProductId,
-            producedItem: items.find((item) => item.id === openBomProductId),
-            lines: [] as BomLine[],
-          },
-        ]
-      : bomRecipes;
 
   if (loading) {
     return (
@@ -2423,35 +2516,179 @@ export default function Home() {
             defaultOpen={false}
             forceOpen={forceOpenBom}
           >
-        <div className="flex flex-col gap-2 border border-border rounded-lg p-4 max-w-md bg-background">
+        <div className="flex flex-col gap-3 border border-border rounded-lg p-4 max-w-md bg-background">
           <label className="flex flex-col gap-1 text-sm">
             Nouvelle nomenclature
             <select
-              defaultValue=""
-              onChange={(event) => {
-                if (event.target.value) startBomRecipe(event.target.value);
-                event.target.value = "";
-              }}
+              value={newBomProductId}
+              onChange={(event) => handleNewBomProductSelect(event.target.value)}
               className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground focus:outline-none focus:border-accent"
             >
-              <option value="" disabled>
-                Sélectionner une référence à composer
-              </option>
-              {items.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.sku} — {item.name}
-                </option>
-              ))}
+              <option value="">Produit à fabriquer…</option>
+              <optgroup label="Produits finis">
+                {productItems.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.sku} — {item.name}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Intrants">
+                {componentItems.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.sku} — {item.name}
+                  </option>
+                ))}
+              </optgroup>
             </select>
           </label>
+
+          {existingBomNoticeId && (
+            <div className="flex items-center justify-between gap-3 rounded-md bg-surface-header px-3 py-2 text-sm">
+              <span>Cette référence possède déjà une nomenclature.</span>
+              <button
+                type="button"
+                onClick={viewExistingBomFromNotice}
+                className="text-xs underline shrink-0"
+              >
+                Voir / Modifier
+              </button>
+            </div>
+          )}
+
+          {newBomProductId && (
+            <div className="flex flex-col gap-3 border-t border-border pt-3">
+              {(() => {
+                const producedItem = items.find((item) => item.id === newBomProductId);
+                const label = producedItem
+                  ? `${producedItem.sku} — ${producedItem.name}`
+                  : newBomProductId;
+
+                return (
+                  <>
+                    <p className="font-medium text-foreground">Nomenclature de {label}</p>
+
+                    {newBomDraftLines.length === 0 ? (
+                      <p className="text-sm text-muted">Aucun intrant ajouté.</p>
+                    ) : (
+                      <div className="overflow-x-auto border border-border rounded-lg">
+                        <table className="w-full text-sm">
+                          <thead className="bg-surface-header border-b border-[#030a16]">
+                            <tr className="text-left">
+                              <th className="px-3 py-2 font-semibold">Intrant</th>
+                              <th className="px-3 py-2 font-semibold text-right">Quantité</th>
+                              <th className="px-3 py-2"></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {newBomDraftLines.map((line, index) => {
+                              const component = items.find(
+                                (item) => item.id === line.componentItemId,
+                              );
+
+                              return (
+                                <tr key={line.componentItemId} className="border-t border-border">
+                                  <td className="px-3 py-2">
+                                    {component
+                                      ? `${component.sku} — ${component.name}`
+                                      : line.componentItemId}
+                                  </td>
+                                  <td className="px-3 py-2 text-right">
+                                    <input
+                                      type="number"
+                                      min="0.01"
+                                      step="0.01"
+                                      value={line.quantity}
+                                      onChange={(event) =>
+                                        updateDraftBomLine(index, event.target.value)
+                                      }
+                                      className="border border-border rounded-md px-2 py-1 w-20 text-right bg-background text-foreground focus:outline-none focus:border-accent"
+                                    />
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => removeDraftBomLine(index)}
+                                      className="text-xs text-red-600 hover:text-red-700"
+                                    >
+                                      Supprimer
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-end gap-2">
+                      <label className="flex flex-col gap-1 text-sm flex-1 min-w-[160px]">
+                        Intrant
+                        <select
+                          value={draftInputItemId}
+                          onChange={(event) => setDraftInputItemId(event.target.value)}
+                          className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground focus:outline-none focus:border-accent"
+                        >
+                          <option value="" disabled>
+                            Sélectionner un intrant
+                          </option>
+                          {componentItems.map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.sku} — {item.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="flex flex-col gap-1 text-sm w-24">
+                        Quantité
+                        <input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={draftQuantity}
+                          onChange={(event) => setDraftQuantity(event.target.value)}
+                          className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground focus:outline-none focus:border-accent"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={addDraftBomLine}
+                        className="rounded-md border border-border px-3 py-1.5 text-sm transition-colors hover:border-accent hover:text-accent"
+                      >
+                        + Ajouter un intrant
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => void saveNewBomRecipe()}
+                        disabled={loading || newBomDraftLines.length === 0}
+                        className="rounded-md bg-accent text-white px-3 py-2 text-sm font-medium transition-colors hover:bg-accent-dark disabled:opacity-50 disabled:hover:bg-accent"
+                      >
+                        Enregistrer la nomenclature
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelNewBomDraft}
+                        className="text-sm text-muted hover:text-foreground"
+                      >
+                        Annuler
+                      </button>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col gap-2">
-          {visibleBomRecipes.length === 0 && (
+          {bomRecipes.length === 0 && (
             <p className="text-sm text-muted">Aucune nomenclature pour le moment.</p>
           )}
 
-          {visibleBomRecipes.map(({ producedItemId, producedItem, lines }) => {
+          {bomRecipes.map(({ producedItemId, producedItem, lines }) => {
             const isOpen = openBomProductId === producedItemId;
             const label = producedItem
               ? `${producedItem.sku} — ${producedItem.name}`
