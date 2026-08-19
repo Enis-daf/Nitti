@@ -2343,18 +2343,14 @@ export default function Home() {
         <aside className="w-full lg:w-[55%] lg:shrink-0 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto flex flex-col gap-5 border border-border rounded-lg p-6 bg-background shadow-sm">
           <div>
             <h2 className="text-lg font-semibold text-foreground">Dashboard & alertes</h2>
-            <div className="flex gap-8 mt-3 text-sm">
-              <div>
-                <p className="text-muted text-xs">Références</p>
-                <p className="text-3xl font-semibold text-foreground">{dashboard.length}</p>
+            <div className="flex gap-3 mt-3">
+              <div className="flex-1 rounded-lg bg-[#030a16] px-4 py-3">
+                <p className="text-xs font-medium text-[#fffefa]">Références</p>
+                <p className="text-3xl font-semibold text-[#fffefa]">{dashboard.length}</p>
               </div>
-              <div>
-                <p className="text-muted text-xs">Alertes</p>
-                <p
-                  className={`text-3xl font-semibold ${alertCount > 0 ? "text-accent" : "text-foreground"}`}
-                >
-                  {alertCount}
-                </p>
+              <div className="flex-1 rounded-lg bg-accent px-4 py-3">
+                <p className="text-xs font-medium text-[#fffefa]">Alertes</p>
+                <p className="text-3xl font-semibold text-[#fffefa]">{alertCount}</p>
               </div>
             </div>
           </div>
