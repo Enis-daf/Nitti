@@ -56,6 +56,33 @@ function stockTransferStatusLabel(status: StockTransferStatus) {
   return "Annulé";
 }
 
+type MovementHistoryRow = {
+  id: string;
+  item_id: string;
+  location_id: string | null;
+  movement_type: "initial_count" | "receipt" | "adjustment" | "consumption";
+  quantity: number;
+  created_at: string;
+  items: { sku: string; name: string };
+};
+
+type ReceivedTransferRow = {
+  id: string;
+  item_id: string;
+  source_location_id: string;
+  destination_location_id: string;
+  quantity: number;
+  created_at: string;
+  items: { sku: string; name: string };
+};
+
+function movementTypeLabel(type: MovementHistoryRow["movement_type"]) {
+  if (type === "initial_count") return "Stock initial";
+  if (type === "receipt") return "Réception";
+  if (type === "adjustment") return "Ajustement";
+  return "Consommation";
+}
+
 type Supplier = {
   id: string;
   name: string;
@@ -449,12 +476,15 @@ export default function Home() {
   const [itemDefaultLocationId, setItemDefaultLocationId] = useState("");
 
   const [movementItemId, setMovementItemId] = useState("");
-  const [movementType, setMovementType] = useState<"initial_count" | "adjustment">(
+  const [movementType, setMovementType] = useState<"initial_count" | "adjustment" | "transfer">(
     "initial_count",
   );
   const [movementQuantity, setMovementQuantity] = useState("");
   const [movementNote, setMovementNote] = useState("");
   const [movementLocationId, setMovementLocationId] = useState("");
+  const [movementDestinationLocationId, setMovementDestinationLocationId] = useState("");
+  const [movementHistory, setMovementHistory] = useState<MovementHistoryRow[]>([]);
+  const [receivedTransfers, setReceivedTransfers] = useState<ReceivedTransferRow[]>([]);
 
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [supplierOrders, setSupplierOrders] = useState<SupplierOrder[]>([]);
@@ -665,6 +695,41 @@ export default function Home() {
     }
   }, []);
 
+  const loadMovementHistory = useCallback(async (organizationId: string) => {
+    const [movementsResult, receivedTransfersResult] = await Promise.all([
+      supabase
+        .from("stock_movements")
+        .select("id, item_id, location_id, movement_type, quantity, created_at, items(sku, name)")
+        .eq("organization_id", organizationId)
+        .neq("movement_type", "transfer")
+        .order("created_at", { ascending: false })
+        .limit(25),
+      supabase
+        .from("stock_transfers")
+        .select(
+          "id, item_id, source_location_id, destination_location_id, quantity, created_at, items(sku, name)",
+        )
+        .eq("organization_id", organizationId)
+        .eq("status", "received")
+        .order("created_at", { ascending: false })
+        .limit(25),
+    ]);
+
+    if (movementsResult.error) {
+      setMessage(movementsResult.error.message);
+    } else {
+      setMovementHistory((movementsResult.data ?? []) as unknown as MovementHistoryRow[]);
+    }
+
+    if (receivedTransfersResult.error) {
+      setMessage(receivedTransfersResult.error.message);
+    } else {
+      setReceivedTransfers(
+        (receivedTransfersResult.data ?? []) as unknown as ReceivedTransferRow[],
+      );
+    }
+  }, []);
+
   const loadOrganization = useCallback(async () => {
     setLoading(true);
 
@@ -704,6 +769,7 @@ export default function Home() {
         loadCustomerData(org.id),
         loadProductionData(org.id),
         loadTransferData(org.id),
+        loadMovementHistory(org.id),
       ]);
     }
 
@@ -715,6 +781,7 @@ export default function Home() {
     loadCustomerData,
     loadProductionData,
     loadTransferData,
+    loadMovementHistory,
   ]);
 
   useEffect(() => {
@@ -751,6 +818,8 @@ export default function Home() {
         setCustomerOrders([]);
         setProductionOrders([]);
         setTransfers([]);
+        setMovementHistory([]);
+        setReceivedTransfers([]);
         setLoading(false);
       }
     });
@@ -899,10 +968,75 @@ export default function Home() {
 
     if (!organization || !movementItemId) return;
 
+    const activeLocations = locations.filter((location) => location.active);
+
+    if (movementType === "transfer") {
+      const originId =
+        movementLocationId || (activeLocations.length === 1 ? activeLocations[0].id : null);
+      const destinationId = movementDestinationLocationId;
+      const quantityValue = Number(movementQuantity);
+
+      if (!originId || !destinationId) {
+        setMessage("Sélectionne un lieu d'origine et un lieu de destination.");
+        return;
+      }
+
+      if (originId === destinationId) {
+        setMessage("Le lieu d'origine et le lieu de destination doivent être différents.");
+        return;
+      }
+
+      if (!quantityValue || quantityValue <= 0) {
+        setMessage("La quantité doit être positive.");
+        return;
+      }
+
+      setLoading(true);
+      setMessage("");
+
+      const { data: transfer, error: transferError } = await supabase
+        .from("stock_transfers")
+        .insert({
+          organization_id: organization.id,
+          item_id: movementItemId,
+          source_location_id: originId,
+          destination_location_id: destinationId,
+          quantity: quantityValue,
+          note: movementNote.trim() || null,
+        })
+        .select("id")
+        .single();
+
+      if (transferError || !transfer) {
+        setMessage(transferError?.message ?? "Erreur lors de la création du transfert.");
+        setLoading(false);
+        return;
+      }
+
+      const { error: receiveError } = await supabase.rpc("receive_stock_transfer", {
+        p_transfer_id: transfer.id,
+      });
+
+      if (receiveError) {
+        setMessage(receiveError.message);
+      } else {
+        setMovementQuantity("");
+        setMovementNote("");
+        setMovementDestinationLocationId("");
+        await Promise.all([
+          loadStockData(organization.id),
+          loadLocationData(organization.id),
+          loadMovementHistory(organization.id),
+        ]);
+      }
+
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setMessage("");
 
-    const activeLocations = locations.filter((location) => location.active);
     const effectiveLocationId =
       movementLocationId || (activeLocations.length === 1 ? activeLocations[0].id : null);
 
@@ -920,8 +1054,11 @@ export default function Home() {
     } else {
       setMovementQuantity("");
       setMovementNote("");
-      await loadStockData(organization.id);
-      await loadLocationData(organization.id);
+      await Promise.all([
+        loadStockData(organization.id),
+        loadLocationData(organization.id),
+        loadMovementHistory(organization.id),
+      ]);
     }
 
     setLoading(false);
@@ -1574,6 +1711,8 @@ export default function Home() {
 
   type LocationAlert = {
     key: string;
+    itemId: string;
+    isLocal: boolean;
     sku: string;
     name: string;
     locationLabel: string;
@@ -1637,6 +1776,8 @@ export default function Home() {
 
         entries.push({
           key: `${row.item_id}-${locationId}`,
+          itemId: row.item_id,
+          isLocal: true,
           sku: row.sku,
           name: row.name,
           locationLabel: locationName,
@@ -1652,6 +1793,8 @@ export default function Home() {
       if (!hasLocalAlert && row.alert_status !== "ok") {
         entries.push({
           key: `${row.item_id}-global`,
+          itemId: row.item_id,
+          isLocal: false,
           sku: row.sku,
           name: row.name,
           locationLabel: "Tous les lieux",
@@ -1998,11 +2141,36 @@ export default function Home() {
   const alertCount = locationAlerts.length;
   const productItems = items.filter((item) => item.item_type === "product");
   const componentItems = items.filter((item) => item.item_type === "component");
+
+  // The summary tables below are one row per reference (not per reference ×
+  // location), so their badge needs a single status per item. Using the raw
+  // global stock_dashboard.alert_status here would let stock sitting at
+  // another location mask a real local rupture — exactly the bug this fixes.
+  // Take the worst LOCAL status (from computeLocationAlerts' real per-location
+  // entries, never its "Tous les lieux" fallback) when one exists, and only
+  // fall back to the global status when no location is actually in trouble.
+  const worstLocalStatusByItem = new Map<string, DashboardRow["alert_status"]>();
+  for (const alert of locationAlerts) {
+    if (!alert.isLocal) continue;
+    const current = worstLocalStatusByItem.get(alert.itemId);
+    if (current === "missing_physical_stock") continue;
+    if (current === "low_physical_stock" && alert.status !== "missing_physical_stock") continue;
+    worstLocalStatusByItem.set(alert.itemId, alert.status);
+  }
+
   const finishedGoodRows = dashboard
     .filter((row) => row.item_type === "product")
+    .map((row) => ({
+      ...row,
+      alert_status: worstLocalStatusByItem.get(row.item_id) ?? row.alert_status,
+    }))
     .sort((a, b) => a.name.localeCompare(b.name));
   const inputRows = dashboard
     .filter((row) => row.item_type === "component")
+    .map((row) => ({
+      ...row,
+      alert_status: worstLocalStatusByItem.get(row.item_id) ?? row.alert_status,
+    }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
   const bomProducedItemIds = new Set(bomLines.map((line) => line.product_item_id));
@@ -2013,6 +2181,32 @@ export default function Home() {
       lines: bomLines.filter((line) => line.product_item_id === producedItemId),
     }))
     .sort((a, b) => (a.producedItem?.name ?? "").localeCompare(b.producedItem?.name ?? ""));
+
+  const combinedMovementHistory = [
+    ...movementHistory.map((row) => ({
+      id: row.id,
+      createdAt: row.created_at,
+      kind: "movement" as const,
+      itemLabel: `${row.items.sku} — ${row.items.name}`,
+      typeLabel: movementTypeLabel(row.movement_type),
+      locationLabel: locations.find((location) => location.id === row.location_id)?.name ?? "—",
+      quantity: Number(row.quantity),
+    })),
+    ...receivedTransfers.map((row) => ({
+      id: row.id,
+      createdAt: row.created_at,
+      kind: "transfer" as const,
+      itemLabel: `${row.items.sku} — ${row.items.name}`,
+      typeLabel: "Transfert entre lieux",
+      originLabel:
+        locations.find((location) => location.id === row.source_location_id)?.name ?? "—",
+      destinationLabel:
+        locations.find((location) => location.id === row.destination_location_id)?.name ?? "—",
+      quantity: Number(row.quantity),
+    })),
+  ]
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+    .slice(0, 20);
 
   if (loading) {
     return (
@@ -2439,42 +2633,22 @@ export default function Home() {
             </select>
           </label>
 
-          {locations.filter((location) => location.active).length > 1 && (
-            <label className="flex flex-col gap-1 text-sm">
-              Lieu
-              <select
-                required
-                value={movementLocationId}
-                onChange={(event) => setMovementLocationId(event.target.value)}
-                className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground focus:outline-none focus:border-accent"
-              >
-                <option value="" disabled>
-                  Sélectionner un lieu
-                </option>
-                {locations
-                  .filter((location) => location.active)
-                  .map((location) => (
-                    <option key={location.id} value={location.id}>
-                      {location.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
-          )}
-
           <label className="flex flex-col gap-1 text-sm">
             Type
             <select
               value={movementType}
-              onChange={(event) =>
-                setMovementType(
-                  event.target.value as "initial_count" | "adjustment",
-                )
-              }
+              onChange={(event) => {
+                const nextType = event.target.value as "initial_count" | "adjustment" | "transfer";
+                setMovementType(nextType);
+                setMovementDestinationLocationId("");
+              }}
               className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
             >
               <option value="initial_count">Stock initial</option>
               <option value="adjustment">Ajustement</option>
+              {locations.filter((location) => location.active).length > 1 && (
+                <option value="transfer">Transfert entre lieux</option>
+              )}
             </select>
           </label>
 
@@ -2483,12 +2657,84 @@ export default function Home() {
             <input
               type="number"
               required
+              min="0.01"
               step="0.01"
               value={movementQuantity}
               onChange={(event) => setMovementQuantity(event.target.value)}
               className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
             />
           </label>
+
+          {movementType === "transfer" ? (
+            <>
+              <label className="flex flex-col gap-1 text-sm">
+                Lieu origine
+                <select
+                  required
+                  value={movementLocationId}
+                  onChange={(event) => setMovementLocationId(event.target.value)}
+                  className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground focus:outline-none focus:border-accent"
+                >
+                  <option value="" disabled>
+                    Sélectionner un lieu
+                  </option>
+                  {locations
+                    .filter((location) => location.active)
+                    .map((location) => (
+                      <option key={location.id} value={location.id}>
+                        {location.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm">
+                Lieu destination
+                <select
+                  required
+                  value={movementDestinationLocationId}
+                  onChange={(event) => setMovementDestinationLocationId(event.target.value)}
+                  className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground focus:outline-none focus:border-accent"
+                >
+                  <option value="" disabled>
+                    Sélectionner un lieu
+                  </option>
+                  {locations
+                    .filter(
+                      (location) => location.active && location.id !== movementLocationId,
+                    )
+                    .map((location) => (
+                      <option key={location.id} value={location.id}>
+                        {location.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            </>
+          ) : (
+            locations.filter((location) => location.active).length > 1 && (
+              <label className="flex flex-col gap-1 text-sm">
+                Lieu
+                <select
+                  required
+                  value={movementLocationId}
+                  onChange={(event) => setMovementLocationId(event.target.value)}
+                  className="border border-border rounded-md px-3 py-1.5 bg-background text-foreground focus:outline-none focus:border-accent"
+                >
+                  <option value="" disabled>
+                    Sélectionner un lieu
+                  </option>
+                  {locations
+                    .filter((location) => location.active)
+                    .map((location) => (
+                      <option key={location.id} value={location.id}>
+                        {location.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            )
+          )}
 
           <label className="flex flex-col gap-1 text-sm">
             Note
@@ -2505,9 +2751,46 @@ export default function Home() {
             disabled={loading || !movementItemId}
             className="rounded-md bg-accent text-white px-3 py-2 font-medium transition-colors hover:bg-accent-dark disabled:opacity-50 disabled:hover:bg-accent"
           >
-            Enregistrer le mouvement
+            {movementType === "transfer" ? "Créer le transfert" : "Enregistrer le mouvement"}
           </button>
         </form>
+
+        <div className="flex flex-col gap-2">
+          <h3 className="font-medium text-sm">Historique des mouvements</h3>
+
+          {combinedMovementHistory.length === 0 && (
+            <p className="text-sm text-muted">Aucun mouvement pour le moment.</p>
+          )}
+
+          {combinedMovementHistory.length > 0 && (
+            <div className="overflow-x-auto border border-border rounded-lg">
+              <table className="w-full text-sm">
+                <thead className="bg-surface-header border-b border-[#030a16]">
+                  <tr className="text-left">
+                    <th className="px-3 py-2 font-semibold">Produit</th>
+                    <th className="px-3 py-2 font-semibold">Type</th>
+                    <th className="px-3 py-2 font-semibold">Lieu</th>
+                    <th className="px-3 py-2 font-semibold text-right">Quantité</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {combinedMovementHistory.map((entry) => (
+                    <tr key={entry.id} className="border-t border-border">
+                      <td className="px-3 py-2">{entry.itemLabel}</td>
+                      <td className="px-3 py-2">{entry.typeLabel}</td>
+                      <td className="px-3 py-2">
+                        {entry.kind === "transfer"
+                          ? `${entry.originLabel} → ${entry.destinationLabel}`
+                          : entry.locationLabel}
+                      </td>
+                      <td className="px-3 py-2 text-right">{quantity(entry.quantity)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
           </CollapsibleSection>
 
           <CollapsibleSection
